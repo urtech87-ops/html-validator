@@ -13,7 +13,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "vnu:up": "docker compose up -d vnu",
-    "vnu:down": "docker compose stop vnu"
+    "vnu:down": "docker compose stop vnu",
+    "test:integration": "vitest run --config vitest.integration.config.mts",
+    "fixtures:update": "node scripts/update-fixtures.mjs"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
