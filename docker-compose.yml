@@ -4,6 +4,9 @@ services:
   vnu:
     image: ${VNU_IMAGE:-ghcr.io/validator/validator@sha256:0811ae47955ff59e52862df4b4d0cba90cd6fdaa62eefc2806aecb883556e616}
     restart: unless-stopped
+    environment:
+      # Raise vnu's document size limit to 6 MiB so 5 MB inputs (spec limit) fit.
+      JAVA_TOOL_OPTIONS: "-Dnu.validator.servlet.max-file-size=6291456"
     # Published on localhost only, so `npm run dev` on the host can reach it.
     ports:
       - "127.0.0.1:8888:8888"
