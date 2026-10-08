@@ -1,0 +1,29 @@
+name: markuplens
+
+services:
+  vnu:
+    image: ghcr.io/validator/validator:${VNU_VERSION:-24.10.17}
+    restart: unless-stopped
+    # Published on localhost only, so `npm run dev` on the host can reach it.
+    ports:
+      - "127.0.0.1:8888:8888"
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - vnu
+    env_file: .env
+    environment:
+      VNU_URL: http://vnu:8888
+      RUNNING_IN_DOCKER: "true"
+    ports:
+      - "127.0.0.1:${APP_PORT:-3000}:3000"
+    extra_hosts:
+      # Lets the app reach sites served on your machine (e.g. XAMPP).
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - markuplens-data:/app/data
+
+volumes:
+  markuplens-data:
