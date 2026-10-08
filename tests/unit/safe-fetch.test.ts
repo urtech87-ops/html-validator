@@ -94,4 +94,11 @@ describe("safeFetch", () => {
     await expect(safeFetch("http://localhost/", opts(fetchImpl, { resolver: async () => ["127.0.0.1"] }))).rejects.toThrow(/private or local/);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
+
+  it("names the host the user typed, not the Docker rewrite, when blocking", async () => {
+    const fetchImpl = mockFetch(() => html("never"));
+    await expect(
+      safeFetch("http://localhost/", opts(fetchImpl, { runningInDocker: true, resolver: async () => ["192.168.65.254"] })),
+    ).rejects.toThrow(/^“localhost” points to a private/);
+  });
 });

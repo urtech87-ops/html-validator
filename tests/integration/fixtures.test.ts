@@ -22,15 +22,18 @@ interface Expected {
   messages: Array<Record<string, unknown>>;
 }
 
-const pick = (m: Record<string, unknown>) => ({
-  type: m.type,
-  subType: m.subType,
-  message: m.message,
-  firstLine: m.firstLine,
-  lastLine: m.lastLine,
-  firstColumn: m.firstColumn,
-  lastColumn: m.lastColumn,
-});
+const pick = (m: object) => {
+  const r = m as Record<string, unknown>;
+  return {
+    type: r.type,
+    subType: r.subType,
+    message: r.message,
+    firstLine: r.firstLine,
+    lastLine: r.lastLine,
+    firstColumn: r.firstColumn,
+    lastColumn: r.lastColumn,
+  };
+};
 
 beforeAll(async () => {
   const health = await checkVnuHealth(vnuUrl);
@@ -44,7 +47,7 @@ describe("known-bad fixtures match the pinned vnu", () => {
     const expected = JSON.parse(readFileSync(path.join(dir, file.replace(/\.html$/, ".expected.json")), "utf8")) as Expected;
     const res = await callVnu(vnuUrl, { body: readFileSync(path.join(dir, file)), mediaType: "text/html" }, 30_000);
     expect(res.version).toBe(expected.vnuVersion);
-    expect(res.messages.map((m) => pick(m as Record<string, unknown>))).toEqual(expected.messages.map(pick));
+    expect(res.messages.map(pick)).toEqual(expected.messages.map(pick));
   });
 });
 

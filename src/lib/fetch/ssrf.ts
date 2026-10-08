@@ -76,8 +76,9 @@ const defaultResolver: Resolver = async (hostname) =>
  */
 export async function assertUrlAllowed(
   url: URL,
-  opts: { allowPrivateUrls: boolean; resolver?: Resolver },
+  opts: { allowPrivateUrls: boolean; resolver?: Resolver; /** Host to name in errors (before the Docker rewrite). */ displayHost?: string },
 ): Promise<void> {
+  const shown = opts.displayHost ?? url.hostname;
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new BlockedUrlError(`Only http and https URLs can be validated (got “${url.protocol.replace(/:$/, "")}”).`);
   }
@@ -91,13 +92,13 @@ export async function assertUrlAllowed(
     try {
       addresses = await (opts.resolver ?? defaultResolver)(host);
     } catch {
-      throw new BlockedUrlError(`Could not resolve host “${url.hostname}”.`);
+      throw new BlockedUrlError(`Could not resolve host “${shown}”.`);
     }
   }
-  if (addresses.length === 0) throw new BlockedUrlError(`Could not resolve host “${url.hostname}”.`);
+  if (addresses.length === 0) throw new BlockedUrlError(`Could not resolve host “${shown}”.`);
   if (addresses.some(isPrivateAddress)) {
     throw new BlockedUrlError(
-      `“${url.hostname}” points to a private or local network address, which is blocked. Set ALLOW_PRIVATE_URLS=true to allow it.`,
+      `“${shown}” points to a private or local network address, which is blocked. Set ALLOW_PRIVATE_URLS=true to allow it.`,
     );
   }
 }

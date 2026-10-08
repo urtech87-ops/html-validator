@@ -6,7 +6,7 @@ never calls the public W3C services.
 
 The full specification lives in [docs/SPEC.md](docs/SPEC.md).
 
-> **Status:** Phase 2 (validation core) in progress.
+> **Status:** Phase 2 (validation core): URL / upload / direct-input validation, options, results UI and source view.
 
 ## Requirements
 
@@ -76,7 +76,26 @@ When the app runs inside Docker, `localhost` and `127.0.0.1` in URLs you validat
 | `npm run lint` | ESLint |
 | `npm run typecheck` | Generate route types and run `tsc` |
 | `npm test` | Vitest unit tests |
+| `npm run test:integration` | Fixture + pipeline tests against the real vnu (needs `docker compose up -d vnu`) |
+| `npm run fixtures:update` | Re-record `tests/fixtures/*.expected.json` from the pinned vnu (only after changing `VNU_IMAGE`) |
 | `npm run vnu:up` / `npm run vnu:down` | Start / stop only the vnu container |
+
+## Validation
+
+| Input | Notes |
+|---|---|
+| **URL** | Fetched server-side: http(s) only, max 5 redirects, 15 s timeout, 5 MB limit, SSRF checks on every hop. Linked stylesheets (`<link rel="stylesheet">`, max 20) are fetched and validated as CSS. Inline `<style>` blocks and `style` attributes are validated by vnu as part of the HTML pass; those messages are tagged **CSS**. |
+| **Upload** | `.html .htm .xhtml .css .svg`, up to 20 files, 5 MB each. Extension, MIME type and content are checked (archives/binaries are rejected). |
+| **Direct input** | HTML or CSS, always UTF-8. **Fragment** mode wraps the input in a minimal HTML5 page and maps line numbers back to your input. |
+
+- **API (internal for now, documented in Phase 6):** `POST /api/validate` with `{ type: "url" | "html" | "css", value, fragment?, options? }`, and `POST /api/validate/upload` (multipart, `files` + `options` JSON).
+- **Score:** `max(0, 100 − 5 × errors − 1 × warnings)`; info messages don't count. A document passes when it has no errors.
+- **Encoding:** BOM → HTTP header → `<meta>` / `@charset`. In auto mode only an HTTP-header charset is forwarded to vnu, so vnu reports encoding problems exactly as validator.w3.org would. An override is forwarded to vnu (optionally only when the document declares nothing).
+- **CSS options** (no jigsaw in v1, so *Medium* is not offered). vnu's CSS checker reports errors only and silently accepts vendor-prefixed properties, so:
+  - *Warning level* filters CSS messages: none = errors only · normal = + warnings · more/all = + CSS info.
+  - *Vendor prefixes*: **Ignore** (default) drops any vnu message about `-webkit-`/`-moz-`/`-ms-`/`-o-` properties; **Treat as warnings** adds one MarkupLens warning per vendor-prefixed property declaration (marked "MarkupLens check" in the results).
+- **Message filters** (hide by text or regex) and the options panel are saved in your browser's localStorage.
+- **vnu size limit:** vnu's default limit is below 5 MB, so `docker-compose.yml` raises it to 6 MiB via `JAVA_TOOL_OPTIONS`.
 
 ## Health check
 

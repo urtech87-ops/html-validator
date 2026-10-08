@@ -76,7 +76,11 @@ export async function safeFetch(input: string | URL, opts: SafeFetchOptions): Pr
   let current = rewriteLocalhostForDocker(original, opts.runningInDocker);
 
   for (let hop = 0; ; hop++) {
-    await assertUrlAllowed(current, { allowPrivateUrls: opts.allowPrivateUrls, resolver: opts.resolver });
+    await assertUrlAllowed(current, {
+      allowPrivateUrls: opts.allowPrivateUrls,
+      resolver: opts.resolver,
+      displayHost: new URL(displayUrl(current, original)).hostname,
+    });
 
     let res: Response;
     try {
