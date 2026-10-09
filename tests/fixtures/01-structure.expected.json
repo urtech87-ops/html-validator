@@ -1,0 +1,70 @@
+{
+  "vnuVersion": "26.10.7 (8049d4d)",
+  "generatedAt": "2026-10-08",
+  "messages": [
+    {
+      "type": "error",
+      "message": "The “center” element is obsolete. Use CSS instead.",
+      "lastLine": 12,
+      "firstColumn": 3,
+      "lastColumn": 10
+    },
+    {
+      "type": "error",
+      "message": "Duplicate ID “menu”.",
+      "lastLine": 13,
+      "firstColumn": 3,
+      "lastColumn": 17
+    },
+    {
+      "type": "info",
+      "subType": "warning",
+      "message": "The first occurrence of ID “menu” was here.",
+      "lastLine": 9,
+      "firstColumn": 3,
+      "lastColumn": 17
+    },
+    {
+      "type": "error",
+      "message": "No “p” element in scope but a “p” end tag seen.",
+      "lastLine": 14,
+      "firstColumn": 49,
+      "lastColumn": 52
+    },
+    {
+      "type": "error",
+      "message": "Element “p” not allowed as child of element “ul” in this context. (Suppressing further errors from this subtree.)",
+      "lastLine": 16,
+      "firstColumn": 5,
+      "lastColumn": 7
+    },
+    {
+      "type": "error",
+      "message": "End tag “main” seen, but there were open elements.",
+      "lastLine": 19,
+      "firstColumn": 1,
+      "lastColumn": 7
+    },
+    {
+      "type": "error",
+      "message": "Unclosed element “span”.",
+      "lastLine": 18,
+      "firstColumn": 3,
+      "lastColumn": 8
+    },
+    {
+      "type": "error",
+      "message": "Stray end tag “div”.",
+      "lastLine": 20,
+      "firstColumn": 1,
+      "lastColumn": 6
+    },
+    {
+      "type": "error",
+      "message": "The “font” element is obsolete. Use CSS instead.",
+      "lastLine": 21,
+      "firstColumn": 9,
+      "lastColumn": 26
+    }
+  ]
+}

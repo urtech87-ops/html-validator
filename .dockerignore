@@ -10,3 +10,5 @@ playwright-report
 *.log
 Dockerfile
 docker-compose.yml
+tests
+.playwright-mcp

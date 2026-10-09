@@ -146,3 +146,18 @@
     @apply font-sans;
   }
 }
+/* Monaco source view: gutter markers and line tints (see components/editor/monaco.tsx) */
+.ml-glyph {
+  border-radius: 9999px;
+  margin-left: 6px;
+  width: 9px !important;
+  height: 9px !important;
+  margin-top: 5px;
+  cursor: pointer;
+}
+.ml-glyph-error { background: var(--destructive); }
+.ml-glyph-warning { background: var(--warning); outline: 1px solid var(--warning-foreground); }
+.ml-glyph-info { background: var(--info); }
+.ml-line-error { background: color-mix(in oklch, var(--destructive) 10%, transparent); }
+.ml-line-warning { background: color-mix(in oklch, var(--warning) 14%, transparent); }
+.ml-line-info { background: color-mix(in oklch, var(--info) 8%, transparent); }
