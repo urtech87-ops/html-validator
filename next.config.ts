@@ -6,6 +6,12 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
   poweredByHeader: false,
+  // Report generators load from node_modules at runtime (playwright-core is external by default).
+  serverExternalPackages: ["exceljs", "playwright-core"],
+  // playwright-core reads browsers.json etc. dynamically, which file tracing can't see.
+  outputFileTracingIncludes: {
+    "/api/report": ["./node_modules/playwright-core/**/*"],
+  },
   turbopack: {
     rules: {
       "*.css": {

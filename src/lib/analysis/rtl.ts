@@ -40,6 +40,12 @@ export interface ScriptStats {
   ratio: number;
 }
 
+/** True when the text contains at least one RTL letter (reports use it for cell/run direction). */
+export function hasRtlText(text: string): boolean {
+  RTL_LETTER.lastIndex = 0;
+  return RTL_LETTER.test(text);
+}
+
 export function scriptStats(text: string): ScriptStats {
   const rtlLetters = text.match(RTL_LETTER)?.length ?? 0;
   const letters = text.match(ANY_LETTER)?.length ?? 0;
