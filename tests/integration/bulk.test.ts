@@ -1,10 +1,14 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import ExcelJS from "exceljs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { summarizeBulk, type BulkPage } from "@/lib/bulk/aggregate";
 import { runBulk } from "@/lib/bulk/runner";
 import type { BulkEvent } from "@/lib/bulk/types";
+import { generateReport } from "@/lib/report/generate";
+import { defaultContents } from "@/lib/report/types";
 import { DEFAULT_OPTIONS } from "@/lib/validation/options";
+import { pdfText } from "../helpers/pdf-text";
 
 /**
  * A 20-page bulk run through the real pipeline (fetch → vnu → structure),
@@ -86,6 +90,37 @@ describe("bulk run against vnu", () => {
     const p4 = pages[3].run!.documents[0];
     expect(p4.structure?.checks.find((c) => c.id === "img-alt")?.status).toBe("fail");
     expect(pages[19].run!.documents[0].fatal).toMatch(/HTTP 404/);
+
+    // The same run as an aggregated Excel workbook and PDF (spec acceptance criterion).
+    const source = { kind: "bulk" as const, target: "URL list", mode: "url-list" as const, pages, startedAt: new Date().toISOString(), cancelled: false };
+    const request = { contents: defaultContents(false), branding: { project: "Bulk test", preparedBy: "CI", reportDate: "2026-10-09" }, source };
+
+    const xlsx = await generateReport({ ...request, format: "xlsx" });
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load((xlsx.body as Uint8Array).buffer as ArrayBuffer);
+    expect(wb.worksheets.map((w) => w.name)).toEqual(["Report Info", "Summary", "Issues", "Structure", "Issue Types"]);
+    // 20 pages + the shared stylesheet once.
+    expect(wb.getWorksheet("Summary")!.rowCount).toBe(1 + 21);
+    // Issues: 4 alt + 3 <center> + the shared CSS error once.
+    const issues = wb.getWorksheet("Issues")!;
+    const severityCol = (issues.getRow(1).values as unknown[]).indexOf("Severity");
+    const errorRows = issues.getRows(2, issues.rowCount - 1)!.filter((r) => r.getCell(severityCol).value === "Error");
+    expect(errorRows).toHaveLength(8);
+    const types = wb.getWorksheet("Issue Types")!.getRows(2, 50)!.filter((r) => r.hasValues);
+    const cssType = types.find((r) => String(r.getCell(1).value).includes("colr"))!;
+    expect([cssType.getCell(4).value, cssType.getCell(5).value]).toEqual([19, 1]);
+    const info = new Map<unknown, unknown>();
+    wb.getWorksheet("Report Info")!.eachRow((r) => info.set(r.getCell(1).value, r.getCell(2).value));
+    expect(info.get("Pages checked")).toBe(20);
+    expect(info.get("Errors (total)")).toBe(8);
+    expect(info.get("Not validated")).toBe(1);
+
+    const pdf = await generateReport({ ...request, format: "pdf" });
+    const { text } = await pdfText(pdf.body as Uint8Array);
+    expect(text).toContain("Site validation report");
+    expect(text).toContain("Most common issues site-wide");
+    expect(text).toContain(`${base}/p19`);
+    expect(text).toMatch(/HTTP 404/);
   });
 
   it("stops early when cancelled", async () => {

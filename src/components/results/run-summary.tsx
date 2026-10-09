@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { CircleCheck, CircleX } from "lucide-react";
 import { formatMs, plural } from "@/lib/format";
 import type { MessageCounts } from "@/lib/validation/types";
@@ -75,6 +76,7 @@ export function RunSummary({
   documents,
   durationMs,
   engineVersion,
+  actions,
 }: {
   title: string;
   score: number;
@@ -83,6 +85,8 @@ export function RunSummary({
   documents: number;
   durationMs: number;
   engineVersion?: string;
+  /** e.g. the "Generate report" button. */
+  actions?: ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
@@ -100,6 +104,7 @@ export function RunSummary({
           {engineVersion ? ` · Nu Html Checker ${engineVersion}` : ""} · Score = 100 − 5 × errors − 1 × warnings
         </p>
       </div>
+      {actions && <div className="shrink-0 sm:self-start">{actions}</div>}
     </div>
   );
 }

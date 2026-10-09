@@ -2,7 +2,7 @@
 
 Status as of **2026-10-09**. Specification: [docs/SPEC.md](SPEC.md). Setup details: [README.md](../README.md).
 
-Phases 1–4 of 7 are complete and merged into `main`. **Next: Phase 5 (`feat/reports`)**, to be started in a new session.
+Phases 1–4 of 7 are complete and merged into `main`. **Phase 5 (`feat/reports`) is built and awaiting the owner's "approved"** (not merged, not pushed).
 
 ## Phases
 
@@ -13,7 +13,7 @@ Phases 1–4 of 7 are complete and merged into `main`. **Next: Phase 5 (`feat/re
 | 2 | `feat/validation-core` | `eeb58b5` | URL / multi-file upload / direct input (HTML/CSS, full/fragment), options panel, vnu client + normalisation, results UI (score, cards, filters, search, sort, grouping), Monaco source view, basic SSRF, Docker localhost rewrite, acceptance fixtures; SSRF fix for metadata + CGNAT |
 | 3 | `feat/structure` | `808ae0b` | Structure & best-practice checks incl. lang/dir RTL, heading outline, image report, plain-English message guide (58 entries) |
 | 4 | `feat/bulk` | `602182c` | Sitemap discovery + URL-list bulk runs, server-side queue with streaming progress, cancel, site summary, most common issues |
-| 5 | `feat/reports` | — | *Not started* — report dialog, PDF, Excel, HTML, JSON, CSV, branding |
+| 5 | `feat/reports` | — (awaiting approval) | Report dialog, PDF (Playwright Chromium), Excel (5 sheets), HTML, JSON, CSV, branding + logo, Arabic/RTL support, Docker image with Noto Arabic fonts |
 | 6 | `feat/history-api` | — | *Not started* — Prisma history, compare runs, public API + docs |
 | 7 | `chore/hardening` | — | *Not started* — SSRF hardening, rate limiting, size limits, e2e tests, README |
 
@@ -77,13 +77,26 @@ Branches are merged with `--no-ff`; nothing is merged into `main` or pushed with
 - A stylesheet linked from many pages is fetched/validated **once per run** and **counted once in the site totals** (per-page numbers still include it).
 - Saving bulk runs is **deferred to Phase 6** (history).
 
+### Phase 5 — reports
+- Worked in the git worktree `D:\xampp\htdocs\html-validator\.claude\worktrees\arabic-pdf-excel-phase-5-27dd17` on branch `feat/reports` (from `main` at `b63bbaa`). Compose project name stays `markuplens` (one stack, one `markuplens_markuplens-data` volume). After the merge: delete `claude/phase-5-reports-planning-*` and remove the worktree **only with the owner's approval**.
+- **On-demand reports until Phase 6:** the browser POSTs the run it holds (`source`, document sources stripped) to `POST /api/report`; nothing is saved. Phase 6 adds history and `runId`.
+- **Formats:** PDF = the HTML report printed by `playwright-core` Chromium headless shell (JS disabled, all network blocked, one shared browser, ≤ 2 renders at once, closed after 60 s idle). Excel via `exceljs`. CSV = **issues only**. JSON = report model, `version: 1`.
+- **Contents toggles:** all on by default, **info follows the run's Verbose option**. Totals/scores always describe the whole run; severity toggles only choose listed messages. Excel always has its 5 sheets.
+- **PDF/HTML cap: 500 grouped messages per document**, with a note; Excel/CSV list up to 200,000 issues; JSON everything.
+- **Logo:** PNG/JPEG/WebP ≤ 1 MB, checked by magic bytes; **no SVG**. WebP can't be embedded in Excel (noted in Report Info).
+- **Excel = 5 sheets:** Report Info (branding, logo, target, input type, run date, page count, totals, average score), Summary, Issues, Structure, Issue Types. Frozen + filtered headers on every sheet, severity colours, Status dropdown (Open / Fixed / Won't fix) + Notes column.
+- **Issue ID** = first 10 hex of SHA-256(normalised document URL without fragment + "\n" + message + "\n" + whitespace-collapsed extract); no line numbers; duplicates in one document get `-2`, `-3`.
+- **Arabic:** Docker image installs `fonts-noto-core` (Noto Sans Arabic / Noto Naskh Arabic) + `fonts-dejavu-core`; HTML/PDF font stacks fall back to them (Segoe UI / Tahoma on Windows). All user text is `dir="auto"` + `unicode-bidi: isolate`/`plaintext`; Arabic in code extracts uses a `unicode-range` alias to the Arabic font. Excel cells containing RTL letters get right-to-left reading order.
+- Shared stylesheets in bulk reports are listed/counted once; documents that couldn't be validated show their reason as status and add no issues (matches the site totals).
+- Pinned: `playwright-core@1.63.0`, `exceljs@4.4.0`, dev `pdfjs-dist@6.3.289` (newest releases ≥ 2 weeks old). Local Chromium: `npx playwright-core install --only-shell chromium` into `D:\ms-playwright` (documented in README first).
+
 ## Machine rules (C: drive is nearly full)
 
 C: filled up on 2026-10-09 and corrupted Docker Desktop's storage (read-only file system, I/O errors, an app image with a 0-byte `package.json`). Since then:
 
 - **Docker Desktop disk image:** `D:\DockerData` (Settings → Resources → Advanced → Disk image location).
 - **npm cache:** `D:\npm-cache` (`npm config set cache D:\npm-cache`).
-- **Playwright browsers:** `PLAYWRIGHT_BROWSERS_PATH=D:\ms-playwright` is set as a Windows user environment variable. It must be documented in the README in Phase 5, before Playwright downloads any browsers.
+- **Playwright browsers:** `PLAYWRIGHT_BROWSERS_PATH=D:\ms-playwright` is set as a Windows user environment variable (documented in the README). The Chromium headless shell for reports is installed there (`chromium_headless_shell-1243`). Processes started before the variable existed (e.g. an old Claude session) don't see it — set `$env:PLAYWRIGHT_BROWSERS_PATH` in that shell.
 - Keep temp output, test artifacts and caches **inside the project on D:** (e.g. git-ignored `test-results/`), not in C: temp folders.
 - **Before any large build or pull** (`docker compose up --build`, image pulls, browser installs): check C: free space and **stop if it is under 3 GB**.
 
@@ -100,9 +113,13 @@ C: filled up on 2026-10-09 and corrupted Docker Desktop's storage (read-only fil
 - If the app container crash-loops after disk problems (e.g. `Invalid package config /app/package.json`), rebuild without cache: `docker compose build --no-cache app`.
 - When testing the API from Git Bash, pass non-ASCII (e.g. Arabic) request bodies from a UTF-8 file (`--data-binary @file.json`); command-line arguments get mangled by the console code page.
 - `C:\Users\HP\AppData\Local\ms-playwright` (≈ 1.6 GB) belongs to the Playwright browser tool used for testing, not to this project.
+- The app image is ≈ 1.4 GB since Phase 5 (Chromium headless shell + Noto fonts).
+- Chromium writes shaped Arabic into PDFs in visual order (some ligatures stay logical), so copy/paste or text extraction from a PDF can show Arabic words reversed; the PDF *displays* correctly. The tests compare Arabic as contiguous letter runs for this reason.
+- Reports aren't saved yet: closing the page loses the run, so generate reports before leaving (Phase 6).
 
 ## Phase 7 backlog (`chore/hardening`)
 
+- **npm audit (Phase 5 additions):** 1 moderate, `exceljs` → `uuid@8` (buffer bounds check; exceljs only calls `v4()` without a buffer, not reachable); 2 low, `monaco-editor` → `dompurify` (also on `main`, new advisories). Revisit with upstream updates.
 - **npm audit:** 9 high-severity, dev-only findings, all from an outdated `braces` (GHSA-vfj7-8cjw-p6xm) via `micromatch` → `fast-glob` in `eslint-config-next` / `@next/eslint-plugin-next` and the shadcn CLI (`shadcn`, `@shadcn/registry`, `ts-morph`, `@ts-morph/common`). Not used at runtime. Do **not** run `npm audit fix --force`; revisit when upstream ships fixes.
 - DNS-rebinding-safe fetching (check the IP at connect time).
 - Rate limit `/api/*` per IP (≈ 30 req/min; one bulk run is a single request).
@@ -127,13 +144,16 @@ docker compose up --build  # http://127.0.0.1:3000
 
 ## How to test
 
-| Command | What it runs | Last result (Phase 4) |
+| Command | What it runs | Last result (Phase 5) |
 |---|---|---|
 | `npm run lint` | ESLint | clean |
 | `npm run typecheck` | `next typegen` + `tsc` | clean |
-| `npm test` | Vitest unit tests | 274 / 274 |
-| `npm run test:integration` | Fixtures, pipeline, structure and a 20-page bulk run + cancel against the real vnu (needs `docker compose up -d vnu`) | 11 / 11 |
+| `npm test` | Vitest unit tests (incl. report model, Issue IDs, CSV, Excel read-back, HTML, logo, dialog) | 302 / 302 |
+| `npm run test:integration` | Fixtures, pipeline, structure, a 20-page bulk run + cancel **+ its aggregated Excel and PDF**, local Arabic PDF (needs vnu and the local Chromium shell) | 13 / 13 |
+| `npm run test:docker` | Arabic PDF + Excel rendered **inside the app container** via `POST /api/report` (needs `docker compose up -d --build`) | 2 / 2 |
 | `npm run build` | Production build | ok |
 | `npm run fixtures:update` | Re-record fixture expectations from the pinned vnu — only after changing `VNU_IMAGE` | — |
 
 Docker check (Phase 4): app container healthy on a fresh `--no-cache` image; single-page validation, structure results, a bulk URL-list run (incl. cancel) and sitemap discovery verified through `127.0.0.1:3000`.
+
+Docker check (Phase 5): `docker compose up --build` from the worktree (project `markuplens`, same volume); app healthy; PDF with Arabic extracts rendered in the container embeds `NotoSansArabic-Regular/Bold`, text extracts as Arabic (`test-results/docker-arabic-report.pdf`, pages as PNG via `scripts/pdf-to-png.mjs`); report dialog → PDF and Excel downloads verified through `127.0.0.1:3000`.

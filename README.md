@@ -6,7 +6,7 @@ never calls the public W3C services.
 
 The full specification lives in [docs/SPEC.md](docs/SPEC.md).
 
-> **Status:** Phase 4 (bulk): sitemap and URL-list bulk runs with live progress and cancel.
+> **Status:** Phase 5 (reports): PDF, Excel, HTML, JSON and CSV reports with branding, for single and bulk runs.
 
 ## Requirements
 
@@ -55,14 +55,48 @@ npm run dev
 
 Open http://localhost:3000. The "Validation engine" card should show **Online**.
 
+### PDF reports in local development (Playwright browser)
+
+PDF reports are rendered by a headless Chromium driven by `playwright-core`. Inside Docker the browser is
+part of the image. For `npm run dev` and the report tests you install it once yourself.
+
+**Keep the browser off a full system drive.** Playwright downloads browsers to
+`%USERPROFILE%\AppData\Local\ms-playwright` by default. On this machine C: is nearly full, so the browsers
+live on D: via a **Windows user environment variable** that must be set *before* the first download:
+
+```powershell
+[Environment]::SetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH", "D:\ms-playwright", "User")
+```
+
+Open a new terminal (or restart your editor) so it picks the variable up, then install only the headless
+shell (≈ 110 MB on disk; no full Chrome needed):
+
+```bash
+npx playwright-core install --only-shell chromium
+```
+
+Check that it landed on D: (`dir D:\ms-playwright` should list a `chromium_headless_shell-*` folder).
+If a process started before the variable was set can't find the browser, set it for that shell only
+(`$env:PLAYWRIGHT_BROWSERS_PATH = "D:\ms-playwright"`) and start it again.
+
 ## Option B: full stack in Docker
 
 ```bash
 docker compose up --build
 ```
 
-Open http://localhost:3000. Both containers publish ports on `127.0.0.1` only, so nothing is reachable
+Open http://127.0.0.1:3000. Both containers publish ports on `127.0.0.1` only, so nothing is reachable
 from your network.
+
+The Compose project is named `markuplens` (`name:` in `docker-compose.yml`), so running it from a git
+worktree replaces the same `app`/`vnu` containers and reuses the `markuplens_markuplens-data` volume instead
+of starting a second stack.
+
+The app image includes what PDF reports need: the Playwright **Chromium headless shell** (matching the
+locked `playwright-core` version) and fonts, **`fonts-noto-core`** (Noto Sans, **Noto Sans Arabic**, Noto
+Naskh Arabic) plus **DejaVu Sans Mono** for code extracts. Without Arabic-capable fonts Chromium would print
+Arabic as empty boxes. The app image is about 1.4 GB (as reported by `docker image ls`); check that C: has at
+least 3 GB free before `docker compose up --build`.
 
 When the app runs inside Docker, `localhost` and `127.0.0.1` in URLs you validate are rewritten to
 `host.docker.internal`, so sites served by XAMPP on your machine can still be checked.
@@ -76,7 +110,9 @@ When the app runs inside Docker, `localhost` and `127.0.0.1` in URLs you validat
 | `npm run lint` | ESLint |
 | `npm run typecheck` | Generate route types and run `tsc` |
 | `npm test` | Vitest unit tests |
-| `npm run test:integration` | Fixture + pipeline tests against the real vnu (needs `docker compose up -d vnu`) |
+| `npm run test:integration` | Fixture, pipeline, bulk and report (Excel + PDF) tests against the real vnu (needs `docker compose up -d vnu` and the [Playwright browser](#pdf-reports-in-local-development-playwright-browser)) |
+| `npm run test:docker` | Report tests against the running Docker app (`docker compose up -d --build` first): renders a PDF with Arabic extracts **inside the container** and checks the Noto Arabic fonts are embedded and the Arabic text is extractable. Set `MARKUPLENS_URL` to use another address (default `http://127.0.0.1:3000`) |
+| `node scripts/pdf-to-png.mjs <file.pdf> <outPrefix> [pages] [scale]` | Render PDF pages to PNG (pdf.js) to eyeball a report, e.g. `test-results/docker-arabic-report.pdf` |
 | `npm run fixtures:update` | Re-record `tests/fixtures/*.expected.json` from the pinned vnu (only after changing `VNU_IMAGE`) |
 | `npm run vnu:up` / `npm run vnu:down` | Start / stop only the vnu container |
 
@@ -160,6 +196,62 @@ Direct-input **fragments** skip the page-level checks (h1, landmarks, lang/RTL, 
 - To keep the browser responsive, the source view isn't kept for documents over 300 KB in bulk runs.
 - Every sitemap and page fetch goes through the same SSRF rules as single-URL validation.
 
+## Reports
+
+**Generate report** appears on single-page results (next to the score) and on the bulk **Site summary**
+once the run has finished. Reports are built **on demand** from the results in your browser and downloaded;
+saving them to history and re-downloading them comes with Phase 6.
+
+| Format | Contents |
+|---|---|
+| **PDF** | A4, print-safe. Cover page (branding, target, run date, score and counts) → executive summary (score, passed / with errors, top 5 issue types chart; bulk: most common issues site-wide) → page/document table → per-document details (grouped messages with fix and up to 3 example locations with extracts, outline, image report) → appendix of structure checks. Page numbers and a footer on every page. |
+| **Excel** | Five sheets, each with a frozen, filtered header row: **Report Info**, **Summary**, **Issues**, **Structure**, **Issue Types** (see below). |
+| **HTML** | The PDF layout as one self-contained file (no external requests; a strict Content-Security-Policy; logo inlined). |
+| **JSON** | The full report model (`schema: "markuplens-report"`, `version: 1`): every message, structure, outline, images. |
+| **CSV** | Issues only, one row per message. UTF-8 with BOM, CRLF; cells starting with `= + - @` are prefixed with `'` so spreadsheets don't run them as formulas. |
+
+- **Contents toggles:** summary, errors, warnings, info, source extracts, structure analysis, outline, image report.
+  All on by default, except **info**, which follows the run's *Verbose* option. Toggles a format can't use are
+  greyed out (Excel has no summary/outline/images; CSV only uses the severities and extracts). Totals and scores
+  always describe the whole run; the severity toggles choose which messages are listed.
+- **Branding:** client/project, prepared by, report date (defaults to today) and an optional logo: **PNG, JPEG or
+  WebP up to 1 MB** (checked by file content; SVG is not accepted). Excel can't show WebP, so a WebP logo
+  appears in PDF/HTML only. Project and "prepared by" are remembered in your browser.
+- **Limits:** PDF and HTML list at most **500 grouped messages per document** and say how many more there are;
+  Excel, CSV and JSON list everything (Excel/CSV stop at 200,000 issue rows).
+- **Bulk reports** aggregate all pages; a stylesheet shared by many pages is listed and counted once.
+  Pages that failed or were cancelled are listed with their status.
+
+### Excel workbook
+
+| Sheet | One row per | Columns |
+|---|---|---|
+| **Report Info** | field | Client/project, prepared by, report date, logo (PNG/JPEG), target, input type, run date, generated, pages/documents checked, passed, with errors, not validated, error/warning/info totals, score (bulk: average and site-wide score), engine version, included contents, notes |
+| **Summary** | page or document | #, page URL, document, type, status, score, errors, warnings, info, structure fails/warnings, HTTP status, checked at, notes |
+| **Issues** | message | **Issue ID**, page URL, document, severity, type, message, line, column, extract, suggested fix, **Status** (Open / Fixed / Won't fix dropdown), **Notes** |
+| **Structure** | check per page | page URL, check, status, explanation, details, affected, lines |
+| **Issue Types** | distinct message | message, severity, type, pages, occurrences, suggested fix |
+
+Severities and check results are colour-coded. **Issue ID** is the first 10 hex digits of SHA-256 over the
+normalised document URL (fragment removed), the message text and the whitespace-collapsed extract. Line numbers
+are left out, so the ID stays the same when unrelated edits move the issue. Identical issues in one document get
+`-2`, `-3`, … suffixes.
+
+### Arabic and other right-to-left text
+
+- PDF/HTML: every message, extract, URL, heading, alt text and branding field is its own bidi-isolated run
+  (`dir="auto"`, `unicode-bidi: isolate` / `plaintext`), so mixed Arabic/English shows in the right order.
+  Font stacks fall back to Noto Sans Arabic / Noto Naskh Arabic (Docker) or Segoe UI / Tahoma (Windows); Arabic
+  inside code extracts uses the Arabic font rather than a monospace font's narrow Arabic glyphs.
+- Excel: any cell containing Arabic (or Hebrew, Urdu, …) text uses **right-to-left reading order**.
+
+### API
+
+`POST /api/report` with `{ format, contents, branding, source }`, where `source` is
+`{ kind: "single", run }` or `{ kind: "bulk", target, mode, pages, startedAt, cancelled }` (the results the UI
+already holds), returns the file with a `Content-Disposition` download name. Phase 6 replaces `source` with a
+saved `runId` and documents the API.
+
 ## Health check
 
 `GET /api/health` posts a tiny HTML document to vnu and returns `200` with `status: "ok"` when vnu
@@ -180,6 +272,11 @@ Items deliberately parked until Phase 7 (`chore/hardening`):
 
   None of these run in the app at runtime. `npm audit fix --force` is **not** used because it would
   install breaking major versions; revisit when upstream releases fixed versions.
+- **npm audit: 1 moderate (Phase 5), runtime.** `exceljs@4.4.0` → `uuid@8` ("missing buffer bounds check in
+  v3/v5/v6 when `buf` is provided"). exceljs only calls `uuid.v4()` without a buffer, so the flaw isn't
+  reachable. Revisit when exceljs updates `uuid`.
+- **npm audit: 2 low, runtime (client).** `monaco-editor` → `dompurify` (IN_PLACE sanitising issues); also on
+  `main`, newly published advisories. Monaco is only used to show code as text.
 - **DNS rebinding.** The SSRF check resolves the host and validates every address, but `fetch` then resolves
   the name again when it connects. A malicious DNS server could answer differently the second time. Phase 7
   should validate the address at connect time (custom `lookup` on the HTTP agent) so the checked IP is the one

@@ -14,6 +14,8 @@ services:
   app:
     build: .
     restart: unless-stopped
+    # Reaps the headless Chromium processes used for PDF reports.
+    init: true
     depends_on:
       - vnu
     env_file: .env
