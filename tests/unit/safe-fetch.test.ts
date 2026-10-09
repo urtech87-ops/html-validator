@@ -128,3 +128,26 @@ describe("safeFetch", () => {
     ).rejects.toThrow(/^“localhost” points to a private/);
   });
 });
+
+describe("safeFetch cancellation", () => {
+  it("throws RunCancelledError when the caller's signal fires mid-request", async () => {
+    const { RunCancelledError } = await import("@/lib/abort");
+    const controller = new AbortController();
+    const fetchImpl = mockFetch(
+      (_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+          setTimeout(() => controller.abort(), 5);
+        }),
+    );
+    await expect(safeFetch("https://example.com/", opts(fetchImpl, { signal: controller.signal }))).rejects.toBeInstanceOf(RunCancelledError);
+  });
+
+  it("does not start when already cancelled", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const fetchImpl = mockFetch(() => html("never"));
+    await expect(safeFetch("https://example.com/", opts(fetchImpl, { signal: controller.signal }))).rejects.toThrow(/cancelled/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});

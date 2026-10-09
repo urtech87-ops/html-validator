@@ -6,7 +6,7 @@ never calls the public W3C services.
 
 The full specification lives in [docs/SPEC.md](docs/SPEC.md).
 
-> **Status:** Phase 3 (structure): structure & best-practice checks, heading outline, image report and plain-English message guide.
+> **Status:** Phase 4 (bulk): sitemap and URL-list bulk runs with live progress and cancel.
 
 ## Requirements
 
@@ -140,6 +140,25 @@ Direct-input **fragments** skip the page-level checks (h1, landmarks, lang/RTL, 
 - **Explain & fix:** `src/lib/guide/messageGuide.ts` maps 58 common vnu messages (pattern → explanation →
   fix → before/after example). On a sample of real sites it explained 98 % of distinct messages; anything
   unknown falls back to vnu's own text.
+
+## Bulk mode (`/bulk`)
+
+- **Sitemap:** enter a sitemap URL (`…/sitemap.xml`, `.xml.gz`, `.txt`) or a site root. For a root, MarkupLens
+  tries `/sitemap.xml`, `/sitemap_index.xml`, then the `Sitemap:` lines in `robots.txt`, and shows what it tried.
+  Sitemap indexes are followed (up to 3 levels, 50 files) and up to 50,000 URLs are listed. Filter the list,
+  tick pages (the first 200 are pre-selected) and run.
+- **URL list:** paste up to **200** URLs, one per line. Blank lines and `#` comments are ignored, missing
+  `http://` is added, duplicates are removed and invalid lines are reported before you run.
+- **Running:** pages are checked **3 at a time** by default (1–6 selectable) on the server; results stream back
+  (`POST /api/bulk`, newline-delimited JSON) with a live progress bar and per-page status. **Cancel** stops the
+  queue and aborts requests already in flight. Leaving the page also cancels the run.
+- **Results:** site summary (average score, passed / with errors / not validated, site-wide counts) and the
+  **most common issues site-wide** (number of pages + occurrences), a sortable page table, and the full
+  single-page results for any page you open.
+- A stylesheet linked from many pages is fetched and validated **once per run**; in the site-wide totals it
+  counts once (per-page numbers still include it).
+- To keep the browser responsive, the source view isn't kept for documents over 300 KB in bulk runs.
+- Every sitemap and page fetch goes through the same SSRF rules as single-URL validation.
 
 ## Health check
 

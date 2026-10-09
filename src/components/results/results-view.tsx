@@ -67,7 +67,7 @@ function DocumentPicker({
   onSelect: (id: string) => void;
 }) {
   return (
-    <nav aria-label="Validated documents" className="lg:sticky lg:top-18 lg:self-start">
+    <nav aria-label="Validated documents" className="min-w-0 lg:sticky lg:top-18 lg:self-start">
       <ul className="flex gap-2 overflow-x-auto pb-1 lg:max-h-[calc(100vh-6rem)] lg:flex-col lg:overflow-x-visible lg:overflow-y-auto">
         {documents.map((d) => {
           const active = d.id === activeId;

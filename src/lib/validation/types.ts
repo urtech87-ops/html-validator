@@ -123,6 +123,8 @@ export interface DocumentResult {
   url?: string;
   /** Decoded source text, shown as code only (never injected as HTML). */
   source: string;
+  /** Bulk runs drop large sources to save memory; the source view is then unavailable. */
+  sourceOmitted?: boolean;
   sizeBytes: number;
   encoding: EncodingInfo;
   doctype: DoctypeInfo;
