@@ -94,9 +94,9 @@ When the app runs inside Docker, `localhost` and `127.0.0.1` in URLs you validat
   | Destination | `ALLOW_PRIVATE_URLS=false` | `ALLOW_PRIVATE_URLS=true` |
   |---|---|---|
   | Public addresses | allowed | allowed |
-  | Loopback (127/8, ::1), 10/8, 172.16/12, 192.168/16, fc00::/7, `host.docker.internal` | blocked | allowed |
-  | Cloud metadata & link-local: 169.254.0.0/16, fe80::/10, fd00:ec2::254, `metadata.google.internal`, `metadata`, `instance-data`, … | **blocked** | **blocked** |
-  | 0.0.0.0/8, ::, CGNAT, multicast, broadcast and other reserved ranges | **blocked** | **blocked** |
+  | Loopback (127/8, ::1), 10/8, 172.16/12, 192.168/16, 100.64/10 (CGNAT, e.g. Tailscale), fc00::/7, `host.docker.internal` | blocked | allowed |
+  | Cloud metadata & link-local: 169.254.0.0/16, fe80::/10, 100.100.100.200 (Alibaba), fd00:ec2::254 (AWS IPv6), `metadata.google.internal`, `metadata`, `instance-data`, … | **blocked** | **blocked** |
+  | 0.0.0.0/8, ::, multicast, broadcast and other reserved ranges | **blocked** | **blocked** |
 
   IPv4-mapped IPv6 (`::ffff:169.254.169.254`) and decimal/hex/octal IPv4 forms (`http://2852039166/`, `http://0xA9FEA9FE/`) are recognised.
   Only http and https are allowed.

@@ -45,9 +45,10 @@ describe("classifyAddress", () => {
     "::ffff:169.254.169.254",
     "::ffff:a9fe:a9fe",
     "::ffff:0.0.0.0",
-    // other non-public ranges the flag does not unlock
-    "100.64.0.1",
+    // Alibaba Cloud metadata (inside CGNAT) and its mapped form
     "100.100.100.200",
+    "::ffff:100.100.100.200",
+    // other non-public ranges the flag does not unlock
     "192.0.0.192",
     "224.0.0.1",
     "255.255.255.255",
@@ -64,6 +65,10 @@ describe("classifyAddress", () => {
     "172.31.255.255",
     "192.168.1.10",
     "192.168.65.254", // host.docker.internal on Docker Desktop
+    "100.64.0.1", // CGNAT / Tailscale
+    "100.100.100.199",
+    "100.127.255.255",
+    "::ffff:100.64.0.1",
     "::1",
     "fc00::1",
     "fd12:3456::1",
@@ -144,11 +149,13 @@ describe.each([
     "http://0xA9FEA9FE/",
     "http://0251.0376.0251.0376/",
     "http://169.254.43518/",
+    "http://100.100.100.200/latest/meta-data/",
+    "http://[::ffff:100.100.100.200]/",
   ])("always blocks metadata/link-local %s", async (url) => {
     await expect(check(url, flag)).rejects.toThrow(METADATA_MESSAGE);
   });
 
-  it.each(["http://0.0.0.0/", "http://0/", "http://[::]/", "http://[::ffff:0.0.0.0]/", "http://100.100.100.200/", "http://224.0.0.1/"])(
+  it.each(["http://0.0.0.0/", "http://0/", "http://[::]/", "http://[::ffff:0.0.0.0]/", "http://224.0.0.1/", "http://192.0.0.192/"])(
     "always blocks reserved %s",
     async (url) => {
       await expect(check(url, flag)).rejects.toThrow(RESERVED_MESSAGE);
@@ -167,7 +174,17 @@ describe.each([
     await expect(check("http://innocent.example/", flag, resolvesTo("93.184.215.14", "::ffff:169.254.169.254"))).rejects.toThrow(METADATA_MESSAGE);
   });
 
-  it.each(["http://127.0.0.1:8080/", "http://[::1]/", "http://10.0.0.5/", "http://172.20.1.1/", "http://192.168.1.20/", "http://[fd12::1]/"])(
+  it.each([
+    "http://127.0.0.1:8080/",
+    "http://[::1]/",
+    "http://10.0.0.5/",
+    "http://172.20.1.1/",
+    "http://192.168.1.20/",
+    "http://[fd12::1]/",
+    "http://100.64.0.1/",
+    "http://100.101.102.103/",
+    "http://[::ffff:100.64.0.1]/",
+  ])(
     `${flag ? "allows" : "blocks"} private address %s`,
     async (url) => {
       const result = check(url, flag);
@@ -186,6 +203,16 @@ describe.each([
       await expect(localhost).rejects.toThrow(PRIVATE_MESSAGE);
       await expect(dockerHost).rejects.toThrow(PRIVATE_MESSAGE);
     }
+  });
+
+  it(`${flag ? "allows" : "blocks"} a Tailscale (CGNAT) hostname`, async () => {
+    const result = check("http://my-laptop.tail1234.ts.net/", flag, resolvesTo("100.88.12.34"));
+    if (flag) await expect(result).resolves.toBeUndefined();
+    else await expect(result).rejects.toThrow(PRIVATE_MESSAGE);
+  });
+
+  it("always blocks a hostname resolving to Alibaba Cloud metadata", async () => {
+    await expect(check("http://innocent.example/", flag, resolvesTo("100.100.100.200"))).rejects.toThrow(METADATA_MESSAGE);
   });
 
   it("reports unresolvable hosts", async () => {

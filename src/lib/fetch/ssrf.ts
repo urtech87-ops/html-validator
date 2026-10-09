@@ -8,11 +8,12 @@ import ipaddr from "ipaddr.js";
  * Every address a host resolves to is classified:
  *   public           → always allowed
  *   private          → allowed only with ALLOW_PRIVATE_URLS=true
- *                      (loopback 127/8 + ::1, 10/8, 172.16/12, 192.168/16, fc00::/7)
+ *                      (loopback 127/8 + ::1, 10/8, 172.16/12, 192.168/16,
+ *                      100.64/10 CGNAT e.g. Tailscale, fc00::/7)
  *   always-blocked   → never allowed, whatever the flag says: cloud metadata
- *                      (169.254.0.0/16, fd00:ec2::254), IPv6 link-local fe80::/10,
- *                      0.0.0.0/8, ::, and every other non-public range
- *                      (CGNAT, multicast, broadcast, reserved, …)
+ *                      (169.254.0.0/16, fd00:ec2::254, 100.100.100.200), IPv6
+ *                      link-local fe80::/10, 0.0.0.0/8, ::, and every other
+ *                      non-public range (multicast, broadcast, reserved, …)
  * IPv4-mapped IPv6 addresses are classified as the IPv4 address they carry.
  * Known metadata hostnames are blocked before DNS is even consulted.
  *
@@ -29,10 +30,14 @@ export class BlockedUrlError extends Error {
 export type AddressClass = "public" | "private" | "always-blocked";
 
 /** Ranges ALLOW_PRIVATE_URLS=true may unlock. Everything non-public outside this list stays blocked. */
-const FLAG_ALLOWED_V4 = new Set(["loopback", "private"]);
+const FLAG_ALLOWED_V4 = new Set(["loopback", "private", "carrierGradeNat"]);
 const FLAG_ALLOWED_V6 = new Set(["loopback", "uniqueLocal"]);
 
-/** Cloud metadata addresses inside otherwise flag-allowed ranges (AWS IMDS IPv6 sits in fc00::/7). */
+/**
+ * Cloud metadata addresses inside otherwise flag-allowed ranges:
+ * Alibaba Cloud's 100.100.100.200 sits in CGNAT, AWS IMDS IPv6 in fc00::/7.
+ */
+const METADATA_V4 = ["100.100.100.200"];
 const METADATA_V6 = [ipaddr.parse("fd00:ec2::254").toNormalizedString()];
 
 /** Hostnames of cloud metadata services. Matched exactly or as a suffix (e.g. "x.metadata.google.internal"). */
@@ -101,7 +106,10 @@ export function classifyAddress(address: string): AddressClass {
   const range = ip.range();
   if (range === "unicast") return "public";
 
-  if (ip.kind() === "ipv4") return FLAG_ALLOWED_V4.has(range) ? "private" : "always-blocked";
+  if (ip.kind() === "ipv4") {
+    if (METADATA_V4.includes(ip.toString())) return "always-blocked";
+    return FLAG_ALLOWED_V4.has(range) ? "private" : "always-blocked";
+  }
 
   if (METADATA_V6.includes((ip as ipaddr.IPv6).toNormalizedString())) return "always-blocked";
   return FLAG_ALLOWED_V6.has(range) ? "private" : "always-blocked";
@@ -173,7 +181,10 @@ export async function assertUrlAllowed(
     const ip = parseIpLiteral(blocked);
     const v4 = ip?.kind() === "ipv6" && (ip as ipaddr.IPv6).isIPv4MappedAddress() ? (ip as ipaddr.IPv6).toIPv4Address() : ip;
     const range = v4?.range();
-    const isMetadataRange = range === "linkLocal" || (v4?.kind() === "ipv6" && METADATA_V6.includes((v4 as ipaddr.IPv6).toNormalizedString()));
+    const isMetadataRange =
+      range === "linkLocal" ||
+      (v4?.kind() === "ipv4" && METADATA_V4.includes(v4.toString())) ||
+      (v4?.kind() === "ipv6" && METADATA_V6.includes((v4 as ipaddr.IPv6).toNormalizedString()));
     if (isMetadataRange) throw new BlockedUrlError(METADATA_BLOCKED_MESSAGE(shown));
     throw new BlockedUrlError(
       `“${shown}” points to a reserved or non-routable address (${blocked}). MarkupLens never fetches these, even with ALLOW_PRIVATE_URLS=true.`,
