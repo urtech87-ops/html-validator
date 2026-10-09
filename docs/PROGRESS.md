@@ -1,8 +1,8 @@
 # MarkupLens — progress log
 
-Status as of **2026-10-09**. Specification: [docs/SPEC.md](SPEC.md). Setup details: [README.md](../README.md).
+Status as of **2026-10-10**. Specification: [docs/SPEC.md](SPEC.md). Setup details: [README.md](../README.md).
 
-Phases 1–4 of 7 are complete and merged into `main`. **Phase 5 (`feat/reports`) is built and awaiting the owner's "approved"** (not merged, not pushed).
+Phases 1–5 of 7 are complete, merged into `main` and pushed. **Next: Phase 6 (`feat/history-api`)**, to be started in a new session.
 
 ## Phases
 
@@ -13,7 +13,7 @@ Phases 1–4 of 7 are complete and merged into `main`. **Phase 5 (`feat/reports`
 | 2 | `feat/validation-core` | `eeb58b5` | URL / multi-file upload / direct input (HTML/CSS, full/fragment), options panel, vnu client + normalisation, results UI (score, cards, filters, search, sort, grouping), Monaco source view, basic SSRF, Docker localhost rewrite, acceptance fixtures; SSRF fix for metadata + CGNAT |
 | 3 | `feat/structure` | `808ae0b` | Structure & best-practice checks incl. lang/dir RTL, heading outline, image report, plain-English message guide (58 entries) |
 | 4 | `feat/bulk` | `602182c` | Sitemap discovery + URL-list bulk runs, server-side queue with streaming progress, cancel, site summary, most common issues |
-| 5 | `feat/reports` | — (awaiting approval) | Report dialog, PDF (Playwright Chromium), Excel (5 sheets), HTML, JSON, CSV, branding + logo, Arabic/RTL support, Docker image with Noto Arabic fonts |
+| 5 | `feat/reports` | `9eabe9b` | Report dialog, PDF (Playwright Chromium), Excel (5 sheets), HTML, JSON, CSV, branding + logo, Arabic/RTL support, Docker image with Noto Arabic fonts; `.claude/` excluded from git and the Docker build context |
 | 6 | `feat/history-api` | — | *Not started* — Prisma history, compare runs, public API + docs |
 | 7 | `chore/hardening` | — | *Not started* — SSRF hardening, rate limiting, size limits, e2e tests, README |
 
@@ -78,12 +78,15 @@ Branches are merged with `--no-ff`; nothing is merged into `main` or pushed with
 - Saving bulk runs is **deferred to Phase 6** (history).
 
 ### Phase 5 — reports
-- Worked in the git worktree `D:\xampp\htdocs\html-validator\.claude\worktrees\arabic-pdf-excel-phase-5-27dd17` on branch `feat/reports` (from `main` at `b63bbaa`). Compose project name stays `markuplens` (one stack, one `markuplens_markuplens-data` volume). After the merge: delete `claude/phase-5-reports-planning-*` and remove the worktree **only with the owner's approval**.
-- **On-demand reports until Phase 6:** the browser POSTs the run it holds (`source`, document sources stripped) to `POST /api/report`; nothing is saved. Phase 6 adds history and `runId`.
-- **Formats:** PDF = the HTML report printed by `playwright-core` Chromium headless shell (JS disabled, all network blocked, one shared browser, ≤ 2 renders at once, closed after 60 s idle). Excel via `exceljs`. CSV = **issues only**. JSON = report model, `version: 1`.
+- Built in a git worktree on `D:` on branch `feat/reports` (from `main` at `b63bbaa`); merged as `9eabe9b` after the owner's browser test (single-page Excel, Arabic PDF, bulk Excel/PDF totals, CSV in Excel, offline HTML, toggles, SVG rejection, stable Issue IDs). Compose project name stays `markuplens` (one stack, one `markuplens_markuplens-data` volume). The planning branch and the worktree were removed after the merge.
+- **`.claude/` is excluded** from git (`.claude/*`, except the tracked `.claude/launch.json` preview config) and from the Docker build context (`.dockerignore`), so worktrees under `.claude/worktrees/` are never sent to `docker build`.
+- **Reports on demand until Phase 6:** the browser POSTs the run it holds (`source`, document sources stripped) to `POST /api/report`; nothing is saved. Phase 6 adds history and `runId`.
+- **Formats:** PDF = the HTML report printed by `playwright-core` Chromium headless shell (JS disabled, all network blocked, one shared browser, ≤ 2 renders at once, closed after 60 s idle). Excel via `exceljs`. HTML = one self-contained file with a strict CSP. JSON = report model, `version: 1`.
+- **CSV = issues only**, UTF-8 **with BOM** (Excel shows Arabic correctly), CRLF, RFC 4180 quoting, and **formula protection**: cells starting with `= + - @` (or tab/CR) get a leading `'`.
 - **Contents toggles:** all on by default, **info follows the run's Verbose option**. Totals/scores always describe the whole run; severity toggles only choose listed messages. Excel always has its 5 sheets.
-- **PDF/HTML cap: 500 grouped messages per document**, with a note; Excel/CSV list up to 200,000 issues; JSON everything.
-- **Logo:** PNG/JPEG/WebP ≤ 1 MB, checked by magic bytes; **no SVG**. WebP can't be embedded in Excel (noted in Report Info).
+- **PDF/HTML cap: 500 grouped messages per document**, with a note pointing to Excel/CSV/JSON; Excel/CSV list up to 200,000 issues; JSON everything.
+- **Logo:** PNG/JPEG/WebP ≤ 1 MB, checked by magic bytes (the declared type is ignored); **SVG logos are rejected**. **A WebP logo is not embedded in Excel** (exceljs/Excel can't show it; Report Info says so); it appears in PDF and HTML.
+- **PDF copy/paste caveat:** Chromium writes shaped Arabic in visual order (some ligatures stay logical), so copying or extracting Arabic text from a PDF can give reversed words; the PDF displays correctly.
 - **Excel = 5 sheets:** Report Info (branding, logo, target, input type, run date, page count, totals, average score), Summary, Issues, Structure, Issue Types. Frozen + filtered headers on every sheet, severity colours, Status dropdown (Open / Fixed / Won't fix) + Notes column.
 - **Issue ID** = first 10 hex of SHA-256(normalised document URL without fragment + "\n" + message + "\n" + whitespace-collapsed extract); no line numbers; duplicates in one document get `-2`, `-3`.
 - **Arabic:** Docker image installs `fonts-noto-core` (Noto Sans Arabic / Noto Naskh Arabic) + `fonts-dejavu-core`; HTML/PDF font stacks fall back to them (Segoe UI / Tahoma on Windows). All user text is `dir="auto"` + `unicode-bidi: isolate`/`plaintext`; Arabic in code extracts uses a `unicode-range` alias to the Arabic font. Excel cells containing RTL letters get right-to-left reading order.
@@ -119,7 +122,9 @@ C: filled up on 2026-10-09 and corrupted Docker Desktop's storage (read-only fil
 
 ## Phase 7 backlog (`chore/hardening`)
 
-- **npm audit (Phase 5 additions):** 1 moderate, `exceljs` → `uuid@8` (buffer bounds check; exceljs only calls `v4()` without a buffer, not reachable); 2 low, `monaco-editor` → `dompurify` (also on `main`, new advisories). Revisit with upstream updates.
+- **npm audit, added in Phase 5 (runtime dependencies):**
+  - 1 moderate: `exceljs@4.4.0` → `uuid@8` ("missing buffer bounds check in v3/v5/v6 when `buf` is provided"). exceljs only calls `uuid.v4()` without a buffer, so it isn't reachable. Revisit when exceljs updates `uuid`.
+  - 2 low: `monaco-editor` → `dompurify` (IN_PLACE sanitising advisories). Newly published advisories, already present on `main` before Phase 5; Monaco only shows code as text. Revisit with a Monaco update.
 - **npm audit:** 9 high-severity, dev-only findings, all from an outdated `braces` (GHSA-vfj7-8cjw-p6xm) via `micromatch` → `fast-glob` in `eslint-config-next` / `@next/eslint-plugin-next` and the shadcn CLI (`shadcn`, `@shadcn/registry`, `ts-morph`, `@ts-morph/common`). Not used at runtime. Do **not** run `npm audit fix --force`; revisit when upstream ships fixes.
 - DNS-rebinding-safe fetching (check the IP at connect time).
 - Rate limit `/api/*` per IP (≈ 30 req/min; one bulk run is a single request).
@@ -156,4 +161,4 @@ docker compose up --build  # http://127.0.0.1:3000
 
 Docker check (Phase 4): app container healthy on a fresh `--no-cache` image; single-page validation, structure results, a bulk URL-list run (incl. cancel) and sitemap discovery verified through `127.0.0.1:3000`.
 
-Docker check (Phase 5): `docker compose up --build` from the worktree (project `markuplens`, same volume); app healthy; PDF with Arabic extracts rendered in the container embeds `NotoSansArabic-Regular/Bold`, text extracts as Arabic (`test-results/docker-arabic-report.pdf`, pages as PNG via `scripts/pdf-to-png.mjs`); report dialog → PDF and Excel downloads verified through `127.0.0.1:3000`.
+Docker check (Phase 5): `docker compose up --build` from the worktree, then again from the main folder on `main` after the merge (project `markuplens`, same volume); app healthy; PDF with Arabic extracts rendered in the container embeds `NotoSansArabic-Regular/Bold`, text extracts as Arabic (`test-results/docker-arabic-report.pdf`, pages as PNG via `scripts/pdf-to-png.mjs`); report dialog → PDF and Excel downloads verified through `127.0.0.1:3000`.
