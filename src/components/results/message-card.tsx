@@ -1,12 +1,14 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import { Code2, EyeOff } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { matchGuide } from "@/lib/guide/messageGuide";
 import { formatLocation } from "@/lib/validation/view";
 import type { ValidationMessage } from "@/lib/validation/types";
 import { Extract } from "./extract";
+import { GuidePanel } from "./guide-panel";
 import { SEVERITY_META, SeverityIcon } from "./severity";
 
 const CATEGORY_LABEL = { html: "HTML", css: "CSS", document: "Document" } as const;
@@ -24,6 +26,7 @@ export const MessageCard = memo(function MessageCard({ message: m, highlighted, 
   const meta = SEVERITY_META[m.severity];
   const location = formatLocation(m);
   const line = m.firstLine ?? m.lastLine;
+  const guide = useMemo(() => matchGuide(m.message), [m.message]);
 
   return (
     <article
@@ -52,6 +55,7 @@ export const MessageCard = memo(function MessageCard({ message: m, highlighted, 
             )}
           </div>
           {m.extract && <Extract extract={m.extract} hiliteStart={m.hiliteStart} hiliteLength={m.hiliteLength} severity={m.severity} />}
+          {guide && !compact && <GuidePanel guide={guide} />}
           {(onJumpToSource || onHide) && (
             <div className="flex flex-wrap gap-1">
               {onJumpToSource && line !== undefined && (

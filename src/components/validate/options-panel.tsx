@@ -136,6 +136,8 @@ export function OptionsPanel() {
               </div>
             </RadioGroup>
             <CheckboxField checked={options.showSource} onChange={(v) => update({ showSource: v })} label="Show source with highlighted lines" />
+            <CheckboxField checked={options.showOutline} onChange={(v) => update({ showOutline: v })} label="Show outline" hint="Heading structure (h1–h6) with skipped levels flagged." />
+            <CheckboxField checked={options.imageReport} onChange={(v) => update({ imageReport: v })} label="Image report" hint="Every image with its alt text; missing and empty alt flagged." />
             <CheckboxField
               checked={options.verbose}
               onChange={(v) => update({ verbose: v })}

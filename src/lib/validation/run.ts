@@ -1,7 +1,8 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
+import { analyzeStructure } from "@/lib/analysis/structure";
 import { getConfig } from "@/lib/config";
-import { decideEncoding, decodeBytes } from "@/lib/fetch/encoding";
+import { charsetFromContentType, decideEncoding, decodeBytes } from "@/lib/fetch/encoding";
 import { FetchFailedError, safeFetch } from "@/lib/fetch/safe-fetch";
 import { BlockedUrlError } from "@/lib/fetch/ssrf";
 import { callVnu, VnuError } from "@/lib/vnu/client";
@@ -152,6 +153,12 @@ export async function validateDocument(input: DocumentInput): Promise<DocumentOu
   messages.sort((a, b) => (a.firstLine ?? 0) - (b.firstLine ?? 0) || (a.firstColumn ?? 0) - (b.firstColumn ?? 0));
 
   result.messages = messages;
+  if (input.kind === "html" || input.kind === "xhtml") {
+    result.structure = analyzeStructure(source, {
+      fragment: !!input.fragment,
+      httpCharset: charsetFromContentType(input.contentType),
+    });
+  }
   result.counts = countMessages(messages);
   result.score = computeScore(result.counts);
   result.passed = result.counts.errors === 0;
