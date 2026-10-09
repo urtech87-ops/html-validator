@@ -15,10 +15,13 @@ import type { ValidationOptions } from "@/lib/validation/options";
 import { filterMessages, groupMessages, sortMessages, type MessageQuery, type SortOrder } from "@/lib/validation/view";
 import type { DocumentResult, MessageCategory, RunResult, Severity } from "@/lib/validation/types";
 import { DocumentDetails } from "./document-details";
+import { ImageReport } from "./image-report";
 import { MessageList } from "./message-list";
+import { OutlineView } from "./outline-view";
 import { CountPills, PassBadge, RunSummary } from "./run-summary";
 import { SEVERITY_META } from "./severity";
 import { SourceView } from "./source-view";
+import { StructureView } from "./structure-view";
 
 const DEFAULT_QUERY: MessageQuery = { severities: { error: true, warning: true, info: true }, category: "all", search: "" };
 
@@ -125,6 +128,7 @@ function DocumentPanel({ doc, options, showTitle }: { doc: DocumentResult; optio
   }, [doc.messages]);
   const hasCss = doc.messages.some((m) => m.category === "css");
   const canShowSource = options.showSource && !doc.fatal && doc.source.length > 0;
+  const structure = doc.fatal ? undefined : doc.structure;
 
   const jumpToSource = useCallback((line: number) => {
     setTab("source");
@@ -187,10 +191,24 @@ function DocumentPanel({ doc, options, showTitle }: { doc: DocumentResult; optio
         <DocumentDetails doc={doc} />
 
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList>
-            <TabsTrigger value="messages">Messages ({doc.messages.length.toLocaleString("en")})</TabsTrigger>
-            {canShowSource && <TabsTrigger value="source">Source</TabsTrigger>}
-          </TabsList>
+          <div className="-mx-1 overflow-x-auto px-1 pb-1">
+            <TabsList>
+              <TabsTrigger value="messages">Messages ({doc.messages.length.toLocaleString("en")})</TabsTrigger>
+              {structure && (
+                <TabsTrigger value="structure">
+                  Structure
+                  {structure.counts.fail > 0 && (
+                    <span className="rounded-full bg-destructive/15 px-1.5 text-[11px] font-semibold text-destructive tabular-nums" aria-label={`${structure.counts.fail} failed`}>
+                      {structure.counts.fail}
+                    </span>
+                  )}
+                </TabsTrigger>
+              )}
+              {structure && options.showOutline && <TabsTrigger value="outline">Outline ({structure.outline.length})</TabsTrigger>}
+              {structure && options.imageReport && <TabsTrigger value="images">Images ({structure.images.length})</TabsTrigger>}
+              {canShowSource && <TabsTrigger value="source">Source</TabsTrigger>}
+            </TabsList>
+          </div>
 
           <TabsContent value="messages" className="space-y-3 pt-2">
             {doc.messages.length > 0 && (
@@ -312,6 +330,22 @@ function DocumentPanel({ doc, options, showTitle }: { doc: DocumentResult; optio
               onHide={hideLike}
             />
           </TabsContent>
+
+          {structure && (
+            <TabsContent value="structure" className="pt-2">
+              <StructureView report={structure} onJumpToSource={canShowSource ? jumpToSource : undefined} />
+            </TabsContent>
+          )}
+          {structure && options.showOutline && (
+            <TabsContent value="outline" className="pt-2">
+              <OutlineView outline={structure.outline} fragment={structure.scope === "fragment"} onJumpToSource={canShowSource ? jumpToSource : undefined} />
+            </TabsContent>
+          )}
+          {structure && options.imageReport && (
+            <TabsContent value="images" className="pt-2">
+              <ImageReport images={structure.images} onJumpToSource={canShowSource ? jumpToSource : undefined} />
+            </TabsContent>
+          )}
 
           {canShowSource && (
             <TabsContent value="source" className="pt-2">

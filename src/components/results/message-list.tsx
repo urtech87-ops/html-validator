@@ -3,8 +3,10 @@
 import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { matchGuide } from "@/lib/guide/messageGuide";
 import { groupMessages, sortMessages, type SortOrder } from "@/lib/validation/view";
 import type { ValidationMessage } from "@/lib/validation/types";
+import { GuidePanel } from "./guide-panel";
 import { MessageCard } from "./message-card";
 import { SEVERITY_META, SeverityIcon } from "./severity";
 
@@ -57,6 +59,11 @@ export function MessageList(props: ListProps) {
                     ×{g.items.length}
                   </span>
                 </button>
+                {open && matchGuide(g.key) && (
+                  <div className="border-t px-3 pt-2 sm:px-4">
+                    <GuidePanel guide={matchGuide(g.key)!} />
+                  </div>
+                )}
                 {open && (
                   <ul className="space-y-2 border-t p-2 sm:p-3">
                     {g.items.map((m) => (

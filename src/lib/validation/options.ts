@@ -57,6 +57,10 @@ export interface ValidationOptions {
   /** Message list layout: by line, or identical messages grouped together. */
   grouping: "sequential" | "by-type";
   showSource: boolean;
+  /** Show the heading outline tab. */
+  showOutline: boolean;
+  /** Show the image report tab (every <img> with its alt text). */
+  imageReport: boolean;
   /** Validate pages that return HTTP 4xx/5xx instead of reporting the status as an error. */
   validateErrorPages: boolean;
   /** Include plain info messages. */
@@ -72,6 +76,8 @@ export const DEFAULT_OPTIONS: ValidationOptions = {
   encoding: { override: "auto", onlyIfMissing: false },
   grouping: "sequential",
   showSource: true,
+  showOutline: true,
+  imageReport: true,
   validateErrorPages: false,
   verbose: false,
   userAgent: "browser",
@@ -99,6 +105,8 @@ export function parseOptions(input: unknown): ValidationOptions {
     },
     grouping: pick(o.grouping, ["sequential", "by-type"] as const, d.grouping),
     showSource: flag(o.showSource, d.showSource),
+    showOutline: flag(o.showOutline, d.showOutline),
+    imageReport: flag(o.imageReport, d.imageReport),
     validateErrorPages: flag(o.validateErrorPages, d.validateErrorPages),
     verbose: flag(o.verbose, d.verbose),
     userAgent: pick(o.userAgent, ["browser", "googlebot", "mobile"] as const, d.userAgent),

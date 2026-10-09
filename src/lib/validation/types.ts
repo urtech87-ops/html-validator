@@ -56,6 +56,63 @@ export interface DoctypeInfo {
   raw?: string;
 }
 
+export type CheckStatus = "pass" | "warning" | "fail";
+
+export interface SourceLocation {
+  line: number;
+  column?: number;
+  /** Short label for the location, e.g. `<img src="logo.png">`. */
+  label: string;
+}
+
+/** One structure / best-practice check (independent of vnu). */
+export interface StructureCheck {
+  id: string;
+  title: string;
+  status: CheckStatus;
+  /** One-line explanation of the result. */
+  explanation: string;
+  /** Extra facts, e.g. the list of missing landmarks. */
+  details?: string[];
+  /** Elements the check is about (capped). */
+  locations?: SourceLocation[];
+  /** Total number of affected elements when `locations` is capped. */
+  affected?: number;
+}
+
+export interface OutlineHeading {
+  level: number;
+  /** Accessible text of the heading (text content, or img alt). */
+  text: string;
+  line?: number;
+  /** Problems with this heading: "skipped-level", "empty", "extra-h1". */
+  issues: Array<"skipped-level" | "empty" | "extra-h1">;
+  /** For skipped levels: the level of the previous heading. */
+  previousLevel?: number;
+}
+
+export interface ImageInfo {
+  src: string;
+  /** null = no alt attribute at all. */
+  alt: string | null;
+  width?: string;
+  height?: string;
+  line?: number;
+  /** missing = no alt (fail); empty = alt="" (decorative, check it's intended); filename/long = suspicious alt. */
+  status: "ok" | "missing" | "empty" | "filename" | "long";
+  /** role="presentation"/"none" or aria-hidden="true". */
+  decorative: boolean;
+}
+
+export interface StructureReport {
+  /** Fragments skip document-level checks (title, meta, lang, landmarks, RTL). */
+  scope: "document" | "fragment";
+  checks: StructureCheck[];
+  outline: OutlineHeading[];
+  images: ImageInfo[];
+  counts: { pass: number; warning: number; fail: number };
+}
+
 export interface DocumentResult {
   id: string;
   /** URL, file name, or "Direct input". */
@@ -83,6 +140,8 @@ export interface DocumentResult {
   counts: MessageCounts;
   score: number;
   passed: boolean;
+  /** Structure & best-practice analysis (HTML and XHTML documents only). */
+  structure?: StructureReport;
 }
 
 export interface RunInput {
