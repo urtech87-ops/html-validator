@@ -31,3 +31,18 @@ describe("callVnu", () => {
     await expect(callVnu("http://vnu:8888", { body: "", mediaType: "text/html" }, 1000, badJson)).rejects.toThrow(/messages/);
   });
 });
+
+describe("callVnu cancellation", () => {
+  it("throws RunCancelledError, not a vnu error, when cancelled", async () => {
+    const { RunCancelledError } = await import("@/lib/abort");
+    const controller = new AbortController();
+    const fetchImpl = vi.fn(
+      (_url: string, init: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+          setTimeout(() => controller.abort(), 5);
+        }),
+    ) as unknown as typeof fetch;
+    await expect(callVnu("http://vnu:8888", { body: "", mediaType: "text/html" }, 10_000, fetchImpl, controller.signal)).rejects.toBeInstanceOf(RunCancelledError);
+  });
+});

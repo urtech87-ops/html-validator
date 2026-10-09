@@ -1,4 +1,5 @@
 import "server-only";
+import { RunCancelledError, throwIfCancelled, withTimeout } from "@/lib/abort";
 import { assertUrlAllowed, BlockedUrlError, rewriteLocalhostForDocker, type Resolver } from "./ssrf";
 
 export const FETCH_TIMEOUT_MS = 15_000;
@@ -35,6 +36,8 @@ export interface SafeFetchOptions {
   maxBytes?: number;
   fetchImpl?: typeof fetch;
   resolver?: Resolver;
+  /** Caller cancellation (bulk runs). Throws RunCancelledError when it fires. */
+  signal?: AbortSignal;
 }
 
 export function parseUserUrl(input: string): URL {
@@ -70,12 +73,13 @@ export async function safeFetch(input: string | URL, opts: SafeFetchOptions): Pr
   const timeoutMs = opts.timeoutMs ?? FETCH_TIMEOUT_MS;
   const maxBytes = opts.maxBytes ?? MAX_RESPONSE_BYTES;
   const fetchImpl = opts.fetchImpl ?? fetch;
-  const signal = AbortSignal.timeout(timeoutMs);
+  const signal = withTimeout(timeoutMs, opts.signal);
   const redirects: string[] = [];
 
   let current = rewriteLocalhostForDocker(original, opts.runningInDocker);
 
   for (let hop = 0; ; hop++) {
+    throwIfCancelled(opts.signal);
     await assertUrlAllowed(current, {
       allowPrivateUrls: opts.allowPrivateUrls,
       resolver: opts.resolver,
@@ -95,6 +99,7 @@ export async function safeFetch(input: string | URL, opts: SafeFetchOptions): Pr
         },
       });
     } catch (err) {
+      throwIfCancelled(opts.signal);
       if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
         throw new FetchFailedError(`The page did not respond within ${Math.round(timeoutMs / 1000)} seconds.`);
       }
@@ -121,7 +126,7 @@ export async function safeFetch(input: string | URL, opts: SafeFetchOptions): Pr
       throw new FetchFailedError(`The response is larger than the ${Math.round(maxBytes / 1024 / 1024)} MB limit.`);
     }
 
-    const bytes = await readLimited(res, maxBytes, timeoutMs);
+    const bytes = await readLimited(res, maxBytes, timeoutMs, opts.signal);
     return {
       requestedUrl: original.href,
       finalUrl: displayUrl(current, original),
@@ -159,7 +164,7 @@ function describeNetworkError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-async function readLimited(res: Response, maxBytes: number, timeoutMs: number): Promise<Uint8Array> {
+async function readLimited(res: Response, maxBytes: number, timeoutMs: number, cancel?: AbortSignal): Promise<Uint8Array> {
   if (!res.body) return new Uint8Array();
   const reader = res.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -177,6 +182,7 @@ async function readLimited(res: Response, maxBytes: number, timeoutMs: number): 
     }
   } catch (err) {
     if (err instanceof FetchFailedError) throw err;
+    if (cancel?.aborted) throw new RunCancelledError();
     if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
       throw new FetchFailedError(`The page did not finish loading within ${Math.round(timeoutMs / 1000)} seconds.`);
     }

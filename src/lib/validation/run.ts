@@ -100,8 +100,18 @@ export function fatalResult(input: DocumentInput, fatal: string): DocumentResult
   return result;
 }
 
+export interface RunContext {
+  /** Cancels fetches and vnu calls (bulk runs). Work in progress throws RunCancelledError. */
+  signal?: AbortSignal;
+  /**
+   * Shared across the pages of one bulk run: a stylesheet linked from many
+   * pages is fetched and validated once. Keyed by absolute URL.
+   */
+  stylesheetCache?: Map<string, Promise<DocumentOutput>>;
+}
+
 /** Validate one document with vnu and post-process the messages. */
-export async function validateDocument(input: DocumentInput): Promise<DocumentOutput> {
+export async function validateDocument(input: DocumentInput, ctx: RunContext = {}): Promise<DocumentOutput> {
   const config = getConfig();
   const isCss = input.kind === "css";
 
@@ -133,7 +143,7 @@ export async function validateDocument(input: DocumentInput): Promise<DocumentOu
 
   let vnu;
   try {
-    vnu = await callVnu(config.vnuUrl, { body, mediaType: MEDIA_TYPES[input.kind], charset: charsetForVnu }, config.vnuTimeoutMs);
+    vnu = await callVnu(config.vnuUrl, { body, mediaType: MEDIA_TYPES[input.kind], charset: charsetForVnu }, config.vnuTimeoutMs, fetch, ctx.signal);
   } catch (err) {
     if (err instanceof VnuError) return { result: { ...fatalResult(input, err.message), source, sizeBytes, encoding } };
     throw err;
@@ -183,7 +193,21 @@ function finalizeRun(input: RunInput, docs: DocumentOutput[], started: number): 
 
 function fetchErrorMessage(err: unknown): string {
   if (err instanceof BlockedUrlError || err instanceof FetchFailedError) return err.message;
-  throw err;
+  throw err; // includes RunCancelledError
+}
+
+/** Re-key a (possibly cached) document so ids are unique within this run. */
+function withDocumentId(output: DocumentOutput, id: string): DocumentOutput {
+  const old = output.result.id;
+  if (old === id) return output;
+  return {
+    ...output,
+    result: {
+      ...output.result,
+      id,
+      messages: output.result.messages.map((m) => ({ ...m, id: m.id.startsWith(`${old}:`) ? `${id}:${m.id.slice(old.length + 1)}` : `${id}:${m.id}` })),
+    },
+  };
 }
 
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
@@ -201,13 +225,14 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, index: nu
 }
 
 /** Validate a URL: the page itself plus every linked stylesheet (inline CSS is checked by vnu in the HTML pass). */
-export async function validateUrl(url: string, options: ValidationOptions): Promise<RunResult> {
+export async function validateUrl(url: string, options: ValidationOptions, ctx: RunContext = {}): Promise<RunResult> {
   const started = performance.now();
   const config = getConfig();
   const fetchOpts = {
     userAgent: USER_AGENTS[options.userAgent].value,
     allowPrivateUrls: config.allowPrivateUrls,
     runningInDocker: config.runningInDocker,
+    signal: ctx.signal,
   };
   const runInput: RunInput = { type: "url", target: url.trim() };
   const base = { id: "page", label: url.trim(), kind: "html" as const, origin: "url" as const, options };
@@ -245,24 +270,38 @@ export async function validateUrl(url: string, options: ValidationOptions): Prom
   if (page.status >= 400) pageInput.notices.push(`The server returned HTTP ${page.status}; validated anyway (“Validate error pages” is on).`);
 
   if (kind === "css" || kind === "svg") {
-    const doc = await validateDocument({ ...pageInput, bytes: page.bytes });
+    const doc = await validateDocument({ ...pageInput, bytes: page.bytes }, ctx);
     return finalizeRun(runInput, [doc], started);
   }
 
   // Validate the page and discover its stylesheets in parallel.
-  const pagePromise = validateDocument({ ...pageInput, bytes: page.bytes });
+  const pagePromise = validateDocument({ ...pageInput, bytes: page.bytes }, ctx);
+  pagePromise.catch(() => {}); // a cancelled stylesheet fetch may reject first; the page result is awaited below
   const preliminary = decideEncoding(page.bytes, { contentType: page.contentType, isCss: false, options: options.encoding });
   const styles = discoverStyles(decodeBytes(page.bytes, preliminary.info.name), page.finalUrl);
-  const cssDocs = await mapLimit(styles.stylesheets, 4, async (href, i) => {
-    const input = { id: `css-${i + 1}`, label: href, kind: "css" as const, origin: "stylesheet" as const, options, url: href };
+  const validateSheet = async (href: string, id: string): Promise<DocumentOutput> => {
+    const input = { id, label: href, kind: "css" as const, origin: "stylesheet" as const, options, url: href };
     try {
       const sheet = await safeFetch(href, { ...fetchOpts, accept: "text/css,*/*;q=0.1" });
       const sheetInput = { ...input, url: sheet.finalUrl, label: sheet.finalUrl, httpStatus: sheet.status, contentType: sheet.contentType, fetchMs: sheet.elapsedMs };
       if (sheet.status >= 400) return { result: fatalResult(sheetInput, `Stylesheet returned HTTP ${sheet.status}.`) };
-      return await validateDocument({ ...sheetInput, bytes: sheet.bytes });
+      return await validateDocument({ ...sheetInput, bytes: sheet.bytes }, ctx);
     } catch (err) {
       return { result: fatalResult(input, `Stylesheet could not be fetched: ${fetchErrorMessage(err)}`) };
     }
+  };
+  const cssDocs = await mapLimit(styles.stylesheets, 4, async (href, i) => {
+    const id = `css-${i + 1}`;
+    const cache = ctx.stylesheetCache;
+    if (!cache) return validateSheet(href, id);
+    let shared = cache.get(href);
+    if (!shared) {
+      shared = validateSheet(href, id);
+      cache.set(href, shared);
+      // Don't keep a cancelled attempt around for later pages.
+      shared.catch(() => cache.delete(href));
+    }
+    return withDocumentId(await shared, id);
   });
 
   const pageDoc = await pagePromise;

@@ -1,4 +1,5 @@
 import "server-only";
+import { RunCancelledError, withTimeout } from "@/lib/abort";
 
 /** A message exactly as the Nu Html Checker returns it in `?out=json`. */
 export interface VnuRawMessage {
@@ -44,6 +45,8 @@ export async function callVnu(
   req: VnuRequest,
   timeoutMs: number,
   fetchImpl: typeof fetch = fetch,
+  /** Caller cancellation (bulk runs). Throws RunCancelledError when it fires. */
+  signal?: AbortSignal,
 ): Promise<VnuResponse> {
   const started = performance.now();
   const contentType = req.charset ? `${req.mediaType}; charset=${req.charset}` : req.mediaType;
@@ -54,10 +57,11 @@ export async function callVnu(
       method: "POST",
       headers: { "Content-Type": contentType },
       body: req.body as BodyInit,
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: withTimeout(timeoutMs, signal),
       cache: "no-store",
     });
   } catch (err) {
+    if (signal?.aborted) throw new RunCancelledError();
     if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
       throw new VnuError(`The validation engine did not respond within ${Math.round(timeoutMs / 1000)} s.`);
     }
@@ -70,6 +74,7 @@ export async function callVnu(
   try {
     json = await res.json();
   } catch {
+    if (signal?.aborted) throw new RunCancelledError();
     throw new VnuError("The validation engine returned invalid JSON.");
   }
   const messages = (json as { messages?: unknown }).messages;
