@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { Logo } from "./logo";
+import { NavLinks } from "./nav-links";
 
 export function SiteHeader() {
   return (
@@ -14,12 +15,7 @@ export function SiteHeader() {
           <Logo />
         </Link>
         <nav aria-label="Main" className="flex items-center gap-1">
-          <Link
-            href="/"
-            className="rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-          >
-            Validate
-          </Link>
+          <NavLinks />
           <ThemeToggle />
         </nav>
       </div>

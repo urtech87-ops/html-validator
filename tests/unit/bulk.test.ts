@@ -160,3 +160,34 @@ describe("runBulk", () => {
     expect(events.at(-1)).toMatchObject({ type: "end", cancelled: true });
   });
 });
+
+describe("summarizeBulk", () => {
+  const msg = (message: string, severity: "error" | "warning" = "error") => ({ id: message, message, severity, category: "html", source: "vnu" }) as const;
+  const doc = (id: string, origin: string, messages: ReturnType<typeof msg>[], url?: string) =>
+    ({ id, origin, url, messages, counts: { errors: messages.filter((m) => m.severity === "error").length, warnings: messages.filter((m) => m.severity === "warning").length, info: 0 } }) as unknown as DocumentResult;
+  const run = (docs: DocumentResult[], score: number, passed: boolean): RunResult =>
+    ({ id: Math.random().toString(), documents: docs, score, passed, counts: { errors: 0, warnings: 0, info: 0 }, durationMs: 1 }) as unknown as RunResult;
+
+  it("counts statuses, pass/fail, average score and site-wide issues", async () => {
+    const { summarizeBulk } = await import("@/lib/bulk/aggregate");
+    const sharedCss = (n: string) => doc(n, "stylesheet", [msg("CSS: bad value")], "https://a.test/site.css");
+    const pages = [
+      { index: 0, url: "https://a.test/1", status: "done" as const, run: run([doc("page", "url", [msg("Duplicate ID “x”."), msg("Duplicate ID “x”.")]), sharedCss("css-1")], 85, false) },
+      { index: 1, url: "https://a.test/2", status: "done" as const, run: run([doc("page", "url", [msg("Duplicate ID “x”."), msg("Section lacks heading.", "warning")]), sharedCss("css-1")], 89, false) },
+      { index: 2, url: "https://a.test/3", status: "done" as const, run: run([doc("page", "url", [])], 100, true) },
+      { index: 3, url: "https://a.test/404", status: "done" as const, run: run([{ ...doc("page", "url", [msg("HTTP 404")]), fatal: "HTTP 404" } as DocumentResult], 95, false) },
+      { index: 4, url: "https://a.test/x", status: "error" as const, error: "boom" },
+      { index: 5, url: "https://a.test/y", status: "cancelled" as const },
+    ];
+    const s = summarizeBulk(pages);
+    expect(s).toMatchObject({ total: 6, finished: 6, passed: 1, failed: 2, notValidated: 2, averageScore: 91 });
+    expect(s.byStatus).toEqual({ queued: 0, running: 0, done: 4, error: 1, cancelled: 1 });
+    // The shared stylesheet's error is counted once site-wide, not once per page.
+    expect(s.counts).toEqual({ errors: 4, warnings: 1, info: 0 });
+    expect(s.commonIssues.map((i) => [i.message, i.pages, i.occurrences])).toEqual([
+      ["Duplicate ID “x”.", 2, 3],
+      ["CSS: bad value", 2, 1],
+      ["Section lacks heading.", 1, 1],
+    ]);
+  });
+});

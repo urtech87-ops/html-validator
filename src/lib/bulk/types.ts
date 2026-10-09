@@ -30,7 +30,7 @@ export interface SitemapDiscovery {
   /** Sitemap files that were read (including child sitemaps of an index). */
   sitemaps: string[];
   urls: SitemapUrl[];
-  /** More URLs existed than MAX_DISCOVERED_URLS. */
+  /** More URLs existed than MAX_DISCOVERED_URLS (50,000). */
   truncated: boolean;
   warnings: string[];
 }

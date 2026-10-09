@@ -6,7 +6,7 @@ import { BlockedUrlError } from "@/lib/fetch/ssrf";
 import type { SitemapDiscovery, SitemapUrl } from "./types";
 
 /** Stop collecting after this many page URLs (the run itself is capped at 200). */
-export const MAX_DISCOVERED_URLS = 10_000;
+export const MAX_DISCOVERED_URLS = 50_000;
 /** Maximum sitemap files read, including children of sitemap indexes. */
 export const MAX_SITEMAP_FILES = 50;
 /** Maximum nesting of sitemap indexes. */
