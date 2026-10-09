@@ -235,8 +235,8 @@ export const MESSAGE_GUIDE: GuideEntry[] = [
   },
   {
     id: "bad-value",
-    pattern: r(`^Bad value ${Q}([^”"]*)${E} for attribute ${NAME} on element ${NAME}`),
-    explanation: "“{1}” is not a valid value for the {2} attribute of <{3}>. The detail after the colon says what was expected.",
+    pattern: r(`^Bad value (?:${Q}(.*?)${E})?\\s*for attribute ${NAME} on element ${NAME}`, "s"),
+    explanation: "The value of the {2} attribute on <{3}> is not valid. The detail after the colon (if any) says what was expected.",
     fix: "Change {2} to a value of the right type: numbers without units for width/height, real URLs for href/src, true boolean attributes without values.",
     example: { before: '<img width="50%">  <input required="false">', after: '<img width="400">  <input> (omit the attribute to mean false)' },
   },
@@ -371,6 +371,64 @@ export const MESSAGE_GUIDE: GuideEntry[] = [
     example: { before: "a { color: red\n  margin: 0 }", after: "a { color: red;\n  margin: 0; }" },
   },
   {
+    id: "css-nested-rule",
+    pattern: r(`^(?:CSS: )?Style rule ${NAME} not allowed outside an ${NAME} rule`),
+    explanation: "This uses CSS nesting (a style rule inside another rule) in a place the CSS checker doesn't accept. Older browsers ignore nested rules entirely.",
+    fix: "Write the rule at the top level with its full selector, or keep nesting only if all your target browsers support it (then hide this message with a filter).",
+    example: { before: ".card {\n  .title { font-weight: 700; }\n}", after: ".card .title { font-weight: 700; }" },
+  },
+  {
+    id: "css-checker-internal",
+    pattern: r("Cannot invoke .*org\\.w3c\\.css"),
+    explanation: "The CSS checker hit an internal error on this declaration. It usually means modern syntax it doesn't understand yet (e.g. newer functions or custom properties), not necessarily a mistake in your CSS.",
+    fix: "Check the declaration in a browser's dev tools. If it works there, hide this message with a filter.",
+  },
+  {
+    id: "css-unit-required",
+    pattern: r("(?:^CSS: )?only “0” can be a “(length|angle|time|frequency|unit)”\\. You must put a unit after your number"),
+    explanation: "Non-zero {1} values need a unit (px, rem, %, deg, s …). Without one, browsers ignore the declaration.",
+    fix: "Add the unit after the number.",
+    example: { before: "margin-top: 10;", after: "margin-top: 10px;" },
+  },
+  {
+    id: "css-deprecated-media-feature",
+    pattern: r("^(?:CSS: )?Deprecated media feature"),
+    explanation: "This media feature (such as device-width or device-height) is deprecated and may stop working.",
+    fix: "Use the viewport-based equivalent: width, height, or aspect-ratio.",
+    example: { before: "@media (max-device-width: 480px)", after: "@media (max-width: 480px)" },
+  },
+  {
+    id: "empty-heading",
+    pattern: r("^Empty heading"),
+    explanation: "A heading element has no text. Screen readers announce an empty heading, which is confusing.",
+    fix: "Add text to the heading, or remove the element if it's only used for spacing.",
+  },
+  {
+    id: "unicode-nfc",
+    pattern: r("^Text run is not in Unicode Normalization Form C"),
+    explanation: "Some characters are stored in a decomposed form (e.g. a letter plus a separate accent). They look the same but can break search and matching.",
+    fix: "Re-type the text or convert the file to NFC (most editors can normalise Unicode).",
+  },
+  {
+    id: "unicode-private-use",
+    pattern: r("^Document uses the Unicode Private Use Area"),
+    explanation: "Private-use characters (often icon-font glyphs) have no standard meaning, so screen readers and copy-paste can't interpret them.",
+    fix: "Use SVG icons or hide icon-font glyphs with aria-hidden=\"true\" and provide a text label.",
+  },
+  {
+    id: "multiple-charset-meta",
+    pattern: r(`^A document must not include more than one ${Q}meta${E} element with a ${Q}charset${E} attribute`),
+    explanation: "The page declares its character encoding more than once.",
+    fix: "Keep a single <meta charset=\"utf-8\"> at the top of <head>.",
+  },
+  {
+    id: "srcset-sizes",
+    pattern: r(`^When the ${Q}srcset${E} attribute has any image candidate string with a width descriptor, the ${Q}sizes${E} attribute must also be`),
+    explanation: "srcset uses width descriptors (like 800w), so the browser needs sizes to know how wide the image will be displayed.",
+    fix: "Add a sizes attribute, e.g. sizes=\"(max-width: 600px) 100vw, 50vw\".",
+    example: { before: '<img srcset="a-400.jpg 400w, a-800.jpg 800w" src="a-800.jpg" alt="…">', after: '<img srcset="a-400.jpg 400w, a-800.jpg 800w" sizes="(max-width: 600px) 100vw, 50vw" src="a-800.jpg" alt="…">' },
+  },
+  {
     id: "css-unknown-at-rule",
     pattern: r("(?:^CSS: )?Unrecognized at-rule"),
     explanation: "This @-rule isn't known to the CSS checker. It may be a typo or a new/vendor-specific rule.",
@@ -388,7 +446,8 @@ export function matchGuide(message: string): GuideMatch | undefined {
   for (const entry of MESSAGE_GUIDE) {
     const m = entry.pattern.exec(message);
     if (!m) continue;
-    const groups = m.slice(1).filter((g): g is string => g !== undefined);
+    // Optional groups that didn't participate become "" so later {n} indexes stay aligned.
+    const groups = m.slice(1).map((g) => g ?? "");
     return {
       id: entry.id,
       explanation: fill(entry.explanation, groups),

@@ -62,6 +62,8 @@ const check = (
 ): StructureCheck => ({ id, title, status, explanation, ...extra });
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+/** "All 3 links have …" / "The only link has …" */
+const allHave = (n: number, one: string, rest: string, many = `${one}s`) => (n === 1 ? `The only ${one} has ${rest}` : `All ${n} ${many} have ${rest}`);
 
 export function analyzeStructure(html: string, context: StructureContext = {}): StructureReport {
   const $ = cheerio.load(html, { sourceCodeLocationInfo: true });
@@ -126,7 +128,7 @@ function headingChecks(outline: OutlineHeading[], fragment: boolean): StructureC
         "heading-order",
         "Heading order",
         "warning",
-        [skipped.length && `${plural(skipped.length, "heading")} skip a level`, empty.length && `${plural(empty.length, "heading")} empty`].filter(Boolean).join("; ") +
+        [skipped.length && `${plural(skipped.length, "heading")} ${skipped.length === 1 ? "skips" : "skip"} a level`, empty.length && plural(empty.length, "empty heading")].filter(Boolean).join("; ") +
           ". Screen-reader users navigate by heading level.",
         { details, ...capLocations([...skipped, ...empty].map(loc)) },
       ),
@@ -281,14 +283,14 @@ function imagesCheck(images: ImageInfo[]): StructureCheck {
   if (suspicious.length) {
     return check("img-alt", "Images have alt text", "warning", `All images have alt, but ${plural(suspicious.length, "alt text")} ${suspicious.length === 1 ? "looks" : "look"} like a file name or ${suspicious.length === 1 ? "is" : "are"} very long.`, capLocations(suspicious.map(loc)));
   }
-  return check("img-alt", "Images have alt text", "pass", `All ${plural(images.length, "image")} have an alt attribute.`);
+  return check("img-alt", "Images have alt text", "pass", `${allHave(images.length, "image", "an alt attribute")}.`);
 }
 
 function emptyLinksCheck($: CheerioAPI): StructureCheck {
   const bad = $("a[href]")
     .toArray()
     .filter((el) => !accessibleName($, el as Element));
-  if (bad.length === 0) return check("link-text", "Links have text", "pass", `All ${$("a[href]").length} links have an accessible name.`);
+  if (bad.length === 0) return check("link-text", "Links have text", "pass", $("a[href]").length === 0 ? "No links on the page." : `${allHave($("a[href]").length, "link", "an accessible name")}.`);
   return check("link-text", "Links have text", "fail", `${plural(bad.length, "link")} with no text, aria-label or image alt. Screen readers announce them as just “link”.`, capLocations(bad.map((el) => locate($, el as Element))));
 }
 
@@ -305,7 +307,7 @@ function buttonNamesCheck($: CheerioAPI): StructureCheck {
     return !accessibleName($, el);
   });
   if (buttons.length === 0) return check("button-name", "Buttons have names", "pass", "No buttons on the page.");
-  if (bad.length === 0) return check("button-name", "Buttons have names", "pass", `All ${plural(buttons.length, "button")} have an accessible name.`);
+  if (bad.length === 0) return check("button-name", "Buttons have names", "pass", `${allHave(buttons.length, "button", "an accessible name")}.`);
   return check("button-name", "Buttons have names", "fail", `${plural(bad.length, "button")} with no text or aria-label (icon-only buttons need aria-label).`, capLocations(bad.map((el) => locate($, el))));
 }
 
@@ -316,7 +318,7 @@ function duplicateIdsCheck($: CheerioAPI): StructureCheck {
     byId.set(id, [...(byId.get(id) ?? []), node as Element]);
   });
   const dupes = [...byId].filter(([, els]) => els.length > 1);
-  if (dupes.length === 0) return check("duplicate-ids", "Unique IDs", "pass", `${plural(byId.size, "id")}, all unique.`);
+  if (dupes.length === 0) return check("duplicate-ids", "Unique IDs", "pass", byId.size === 0 ? "No id attributes on the page." : byId.size === 1 ? "1 id, used once." : `${byId.size} ids, all unique.`);
   return check("duplicate-ids", "Unique IDs", "fail", `${plural(dupes.length, "id")} used more than once. Labels, anchors and ARIA references break.`, {
     details: dupes.slice(0, 50).map(([id, els]) => `“${id}” ×${els.length} (lines ${els.map(lineOf).filter(Boolean).join(", ")})`),
     ...capLocations(dupes.flatMap(([, els]) => els.map((el) => locate($, el)))),
@@ -334,7 +336,7 @@ function deprecatedCheck($: CheerioAPI): StructureCheck {
   if (found.length === 0) return check("deprecated", "Deprecated elements", "pass", "No obsolete elements such as <center>, <font> or <marquee>.");
   const counts = new Map<string, number>();
   for (const el of found) counts.set(el.tagName, (counts.get(el.tagName) ?? 0) + 1);
-  return check("deprecated", "Deprecated elements", "fail", `${plural(found.length, "obsolete element")}: ${[...counts].map(([t, n]) => `<${t}> ×${n}`).join(", ")}. Replace them with CSS or modern elements.`, capLocations(found.map((el) => locate($, el))));
+  return check("deprecated", "Deprecated elements", "fail", `${plural(found.length, "obsolete element")}: ${[...counts].map(([t, n]) => `<${t}> ×${n}`).join(", ")}. Replace ${found.length === 1 ? "it" : "them"} with CSS or modern elements.`, capLocations(found.map((el) => locate($, el))));
 }
 
 function formLabelsCheck($: CheerioAPI): StructureCheck {
@@ -364,13 +366,13 @@ function formLabelsCheck($: CheerioAPI): StructureCheck {
   };
   const bad = fields.filter((el) => !labelled(el));
   if (fields.length === 0) return check("form-labels", "Form fields have labels", "pass", "No form fields on the page.");
-  if (bad.length === 0) return check("form-labels", "Form fields have labels", "pass", `All ${plural(fields.length, "form field")} have a label.`);
+  if (bad.length === 0) return check("form-labels", "Form fields have labels", "pass", `${allHave(fields.length, "form field", "a label")}.`);
   const placeholderOnly = bad.filter((el) => collapse($(el).attr("placeholder") ?? "")).length;
   return check(
     "form-labels",
     "Form fields have labels",
     "fail",
-    `${plural(bad.length, "form field")} without an associated <label>, aria-label or aria-labelledby${placeholderOnly ? ` (${placeholderOnly} rely on placeholder only, which is not a label)` : ""}.`,
+    `${plural(bad.length, "form field")} without an associated <label>, aria-label or aria-labelledby${placeholderOnly ? ` (${placeholderOnly} ${placeholderOnly === 1 ? "relies" : "rely"} on a placeholder only, which is not a label)` : ""}.`,
     capLocations(bad.map((el) => ({ line: lineOf(el) ?? 0, label: describe($, el) })).map((l) => (l.line ? l : undefined))),
   );
 }

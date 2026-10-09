@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { getConfig } from "@/lib/config";
+import { matchGuide } from "@/lib/guide/messageGuide";
 import { DEFAULT_OPTIONS } from "@/lib/validation/options";
 import { validateText } from "@/lib/validation/run";
 import { callVnu } from "@/lib/vnu/client";
@@ -78,5 +79,25 @@ describe("validation pipeline against vnu", () => {
     expect(run.score).toBe(Math.max(0, 100 - 5 * run.counts.errors - run.counts.warnings));
     const ok = await validateText("html", '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>t</title></head><body><p>x</p></body></html>', false, DEFAULT_OPTIONS);
     expect(ok).toMatchObject({ passed: true, score: 100, counts: { errors: 0, warnings: 0, info: 0 } });
+  });
+});
+
+describe("structure analysis in the pipeline", () => {
+  it("analyses fixture 03 (no lang, empty title, skipped heading) alongside vnu", async () => {
+    const run = await validateText("html", readFileSync(path.join(dir, "03-head-and-css.html"), "utf8"), false, DEFAULT_OPTIONS);
+    const s = run.documents[0].structure!;
+    const status = Object.fromEntries(s.checks.map((c) => [c.id, c.status]));
+    expect(status).toMatchObject({ "html-lang": "fail", title: "fail", "heading-order": "warning", charset: "fail", landmarks: "fail", "inline-styles": "warning" });
+    expect(s.outline.map((h) => [h.level, h.issues])).toEqual([
+      [1, []],
+      [3, ["skipped-level"]],
+    ]);
+    // every vnu message on this fixture has a plain-English explanation
+    expect(run.documents[0].messages.filter((m) => !matchGuide(m.message))).toEqual([]);
+  });
+
+  it("does not analyse CSS documents", async () => {
+    const run = await validateText("css", "a { color: red; }", false, DEFAULT_OPTIONS);
+    expect(run.documents[0].structure).toBeUndefined();
   });
 });

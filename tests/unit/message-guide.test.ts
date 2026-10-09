@@ -33,6 +33,12 @@ describe("message guide", () => {
     ["The heading “h3” (with computed level 3) follows the heading “h1” (with computed level 1), skipping 1 heading level.", "heading-skip"],
     ["The “navigation” role is unnecessary for element “nav”.", "unnecessary-role"],
     ["Start tag seen without seeing a doctype first. Expected “<!DOCTYPE html>”.", "doctype-missing"],
+    ["Bad value  for attribute “src” on element “img”: Illegal character in query. “[” is not allowed.", "bad-value"],
+    ["Bad value “a\"b” for attribute “href” on element “a”: Illegal character.", "bad-value"],
+    ["CSS: only “0” can be a “unit”. You must put a unit after your number", "css-unit-required"],
+    ["CSS: Style rule “.title” not allowed outside an “@media” rule in a “style” element in “body”.", "css-nested-rule"],
+    ['“color”: Cannot invoke "org.w3c.css.values.CssValue.getType()" because "val" is null.', "css-checker-internal"],
+    ["Element “link” is missing a required attribute “href”.", "missing-required-attribute"],
     ["Some brand-new message vnu added yesterday.", undefined],
   ])("%s → %s", (message, id) => {
     expect(matchGuide(message)?.id).toBe(id);
@@ -50,5 +56,13 @@ describe("message guide", () => {
       .flatMap((f) => (JSON.parse(readFileSync(path.join(dir, f), "utf8")) as { messages: Array<{ message: string }> }).messages.map((m) => m.message));
     const unexplained = messages.filter((m) => !matchGuide(m));
     expect(unexplained).toEqual([]);
+  });
+});
+
+describe("message guide placeholders", () => {
+  it("keeps placeholder positions when an optional group is absent", () => {
+    const g = matchGuide("Bad value  for attribute “src” on element “img”: Illegal character in query.")!;
+    expect(g.explanation).toBe("The value of the src attribute on <img> is not valid. The detail after the colon (if any) says what was expected.");
+    expect(matchGuide("Element “link” is missing a required attribute “href”.")!.fix).toBe("Add the href attribute with a valid value.");
   });
 });

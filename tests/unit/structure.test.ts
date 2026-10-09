@@ -227,7 +227,7 @@ describe("accessibility checks", () => {
     const c = get(r.checks, "form-labels");
     expect(c.status).toBe("fail");
     expect(c.affected).toBe(3);
-    expect(c.explanation).toMatch(/1 rely on placeholder only/);
+    expect(c.explanation).toMatch(/1 relies on a placeholder only/);
   });
 });
 

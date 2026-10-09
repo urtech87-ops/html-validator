@@ -6,7 +6,7 @@ never calls the public W3C services.
 
 The full specification lives in [docs/SPEC.md](docs/SPEC.md).
 
-> **Status:** Phase 2 (validation core): URL / upload / direct-input validation, options, results UI and source view.
+> **Status:** Phase 3 (structure): structure & best-practice checks, heading outline, image report and plain-English message guide.
 
 ## Requirements
 
@@ -107,6 +107,39 @@ When the app runs inside Docker, `localhost` and `127.0.0.1` in URLs you validat
   - *Vendor prefixes*: **Ignore** (default) drops any vnu message about `-webkit-`/`-moz-`/`-ms-`/`-o-` properties; **Treat as warnings** adds one MarkupLens warning per vendor-prefixed property declaration (marked "MarkupLens check" in the results).
 - **Message filters** (hide by text or regex) and the options panel are saved in your browser's localStorage.
 - **vnu size limit:** vnu's default limit is below 5 MB, so `docker-compose.yml` raises it to 6 MiB via `JAVA_TOOL_OPTIONS`.
+
+## Structure, outline, images and the message guide
+
+HTML and XHTML documents also get a **Structure** tab, computed on the parsed DOM independently of vnu
+(not part of the score). Each check is *pass / warning / fail* with a one-line explanation and links to
+the affected lines:
+
+| Check | Fail / warning when |
+|---|---|
+| Single `<h1>` | none (fail) · more than one (warning) |
+| Heading order | a level is skipped (h1 → h3) or a heading is empty |
+| Landmarks | no `<main>` (fail) · `<header>`, `<nav>` or `<footer>` missing (warning); ARIA roles count |
+| Page language | `<html lang>` missing, empty or not valid BCP 47 · invalid `dir` value |
+| Right-to-left content | mostly Arabic/Hebrew/Urdu-script text (≥ 50 % of letters, ≥ 20 letters) without `dir="rtl"` (fail) or without an RTL `lang` (warning) · mixed content with unmarked RTL passages · `dir="rtl"` on a page with no RTL text |
+| `<title>` | missing/empty (fail) · shorter than 10 or longer than 60 characters |
+| Meta description | missing, empty, or outside 50–160 characters |
+| Viewport meta | missing, no `width=device-width`, or zoom blocked |
+| Charset declaration | no `<meta charset>` and no HTTP charset (fail) · declared after 1024 bytes or not UTF-8 |
+| Images have alt | any `<img>` without `alt` (fail) · alt that looks like a file name or is over 150 characters |
+| Links have text / Buttons have names | no text, `aria-label`, `aria-labelledby`, image alt or `title` |
+| Unique IDs | an `id` used more than once |
+| Inline styles | any `style` attribute (warning, with count) |
+| Deprecated elements | `<center>`, `<font>`, `<marquee>`, `<big>`, `<strike>`, `<tt>` and other obsolete elements |
+| Form labels | inputs/selects/textareas without `<label for>`, a wrapping `<label>`, `aria-label(ledby)` or `title`; placeholder-only is called out |
+
+Direct-input **fragments** skip the page-level checks (h1, landmarks, lang/RTL, title, meta, charset).
+
+- **Outline** (option *Show outline*): the h1–h6 tree with skipped levels, empty headings and extra h1s flagged.
+- **Images** (option *Image report*): every `<img>` with its alt text, flagged *missing / empty (decorative) /
+  file name / very long*. Images are listed as text only; MarkupLens never loads them.
+- **Explain & fix:** `src/lib/guide/messageGuide.ts` maps 58 common vnu messages (pattern → explanation →
+  fix → before/after example). On a sample of real sites it explained 98 % of distinct messages; anything
+  unknown falls back to vnu's own text.
 
 ## Health check
 
