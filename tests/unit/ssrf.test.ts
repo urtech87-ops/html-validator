@@ -1,63 +1,197 @@
 import { describe, expect, it } from "vitest";
-import { assertUrlAllowed, isPrivateAddress, rewriteLocalhostForDocker } from "@/lib/fetch/ssrf";
+import {
+  assertUrlAllowed,
+  classifyAddress,
+  isMetadataHostname,
+  isPrivateAddress,
+  parseIpLiteral,
+  rewriteLocalhostForDocker,
+  type Resolver,
+} from "@/lib/fetch/ssrf";
 
-describe("isPrivateAddress", () => {
+const resolvesTo =
+  (...addresses: string[]): Resolver =>
+  async () =>
+    addresses;
+
+/** Resolver that must not be called (IP literals and metadata hostnames never hit DNS). */
+const noDns: Resolver = async (host) => {
+  throw new Error(`unexpected DNS lookup for ${host}`);
+};
+
+const METADATA_MESSAGE = /cloud metadata or link-local address\. MarkupLens never fetches these, even with ALLOW_PRIVATE_URLS=true\./;
+const PRIVATE_MESSAGE = /private or local network address, which is blocked\. Set ALLOW_PRIVATE_URLS=true/;
+const RESERVED_MESSAGE = /reserved or non-routable address/;
+
+async function check(url: string, allowPrivateUrls: boolean, resolver: Resolver = noDns) {
+  return assertUrlAllowed(new URL(url), { allowPrivateUrls, resolver });
+}
+
+describe("classifyAddress", () => {
+  it.each([
+    // IPv4 link-local / metadata
+    "169.254.169.254",
+    "169.254.0.1",
+    "169.254.255.255",
+    // IPv6 link-local and AWS IMDS IPv6
+    "fe80::1",
+    "febf::ffff",
+    "fd00:ec2::254",
+    // "this network" and unspecified
+    "0.0.0.0",
+    "0.1.2.3",
+    "::",
+    // IPv4-mapped forms of the above
+    "::ffff:169.254.169.254",
+    "::ffff:a9fe:a9fe",
+    "::ffff:0.0.0.0",
+    // other non-public ranges the flag does not unlock
+    "100.64.0.1",
+    "100.100.100.200",
+    "192.0.0.192",
+    "224.0.0.1",
+    "255.255.255.255",
+    "64:ff9b::a9fe:a9fe",
+    "2002:a9fe:a9fe::1",
+    "not-an-ip",
+  ])("%s is always blocked", (ip) => expect(classifyAddress(ip)).toBe("always-blocked"));
+
   it.each([
     "127.0.0.1",
     "127.10.0.1",
-    "10.1.2.3",
+    "10.0.0.1",
     "172.16.0.1",
     "172.31.255.255",
     "192.168.1.10",
-    "169.254.169.254",
-    "0.0.0.0",
-    "100.64.0.1",
+    "192.168.65.254", // host.docker.internal on Docker Desktop
     "::1",
     "fc00::1",
     "fd12:3456::1",
-    "fe80::1",
+    "fd00:ec2::253", // next to the metadata address, still ULA
     "::ffff:127.0.0.1",
     "::ffff:10.0.0.1",
-    "not-an-ip",
-  ])("blocks %s", (ip) => expect(isPrivateAddress(ip)).toBe(true));
+  ])("%s is private (allowed only with the flag)", (ip) => expect(classifyAddress(ip)).toBe("private"));
 
-  it.each(["8.8.8.8", "93.184.215.14", "172.32.0.1", "2606:4700:4700::1111", "::ffff:8.8.8.8"])("allows %s", (ip) =>
-    expect(isPrivateAddress(ip)).toBe(false),
+  it.each(["8.8.8.8", "93.184.215.14", "172.32.0.1", "2606:4700:4700::1111", "::ffff:8.8.8.8"])("%s is public", (ip) =>
+    expect(classifyAddress(ip)).toBe("public"),
+  );
+
+  it("keeps isPrivateAddress as 'not public'", () => {
+    expect(isPrivateAddress("10.0.0.1")).toBe(true);
+    expect(isPrivateAddress("169.254.169.254")).toBe(true);
+    expect(isPrivateAddress("8.8.8.8")).toBe(false);
+  });
+});
+
+describe("parseIpLiteral (alternate IPv4 encodings)", () => {
+  it.each([
+    ["2852039166", "169.254.169.254"],
+    ["0xA9FEA9FE", "169.254.169.254"],
+    ["0xa9fea9fe", "169.254.169.254"],
+    ["0251.0376.0251.0376", "169.254.169.254"],
+    ["0xa9.254.0251.254", "169.254.169.254"],
+    ["169.254.43518", "169.254.169.254"],
+    ["169.16689662", "169.254.169.254"],
+    ["0", "0.0.0.0"],
+    ["127.1", "127.0.0.1"],
+    ["[::ffff:a9fe:a9fe]", "::ffff:a9fe:a9fe"],
+  ])("%s → %s", (input, expected) => expect(parseIpLiteral(input)?.toString()).toBe(expected));
+
+  it("rejects hostnames and out-of-range numbers", () => {
+    expect(parseIpLiteral("example.com")).toBeUndefined();
+    expect(parseIpLiteral("1.2.3.256")).toBeUndefined();
+    expect(parseIpLiteral("4294967296")).toBeUndefined();
+    expect(parseIpLiteral("08.1.1.1")).toBeUndefined();
+  });
+
+  it("classifies the encoded forms as metadata", () => {
+    for (const raw of ["2852039166", "0xA9FEA9FE", "0251.0376.0251.0376"]) expect(classifyAddress(raw)).toBe("always-blocked");
+  });
+});
+
+describe("isMetadataHostname", () => {
+  it.each(["metadata", "metadata.google.internal", "METADATA.Google.Internal.", "metadata.goog", "instance-data", "instance-data.ec2.internal", "x.metadata.google.internal"])(
+    "%s is a metadata host",
+    (h) => expect(isMetadataHostname(h)).toBe(true),
+  );
+  it.each(["example.com", "metadata.example.com", "mymetadata", "instance-data-viewer.com"])("%s is not", (h) =>
+    expect(isMetadataHostname(h)).toBe(false),
   );
 });
 
-describe("assertUrlAllowed", () => {
-  const publicResolver = async () => ["93.184.215.14"];
-
-  it("rejects non-http schemes even when private URLs are allowed", async () => {
+describe.each([
+  { flag: false, label: "ALLOW_PRIVATE_URLS=false" },
+  { flag: true, label: "ALLOW_PRIVATE_URLS=true" },
+])("assertUrlAllowed with $label", ({ flag }) => {
+  it("rejects non-http schemes", async () => {
     for (const url of ["ftp://example.com/", "file:///etc/passwd", "gopher://x/"]) {
-      await expect(assertUrlAllowed(new URL(url), { allowPrivateUrls: true })).rejects.toThrow(/Only http and https/);
+      await expect(check(url, flag)).rejects.toThrow(/Only http and https/);
     }
   });
 
   it("allows public hosts", async () => {
-    await expect(assertUrlAllowed(new URL("https://example.com/"), { allowPrivateUrls: false, resolver: publicResolver })).resolves.toBeUndefined();
+    await expect(check("https://example.com/", flag, resolvesTo("93.184.215.14"))).resolves.toBeUndefined();
   });
 
-  it("blocks private IP literals and hosts resolving to private ranges", async () => {
-    await expect(assertUrlAllowed(new URL("http://127.0.0.1:8080/"), { allowPrivateUrls: false })).rejects.toThrow(/private or local/);
-    await expect(assertUrlAllowed(new URL("http://[::1]/"), { allowPrivateUrls: false })).rejects.toThrow(/private or local/);
-    await expect(
-      assertUrlAllowed(new URL("http://sneaky.example/"), { allowPrivateUrls: false, resolver: async () => ["93.184.215.14", "10.0.0.5"] }),
-    ).rejects.toThrow(/private or local/);
+  it.each([
+    "http://169.254.169.254/latest/meta-data/",
+    "http://169.254.170.2/v2/credentials",
+    "http://[fe80::1]/",
+    "http://[fd00:ec2::254]/latest/meta-data/",
+    "http://[::ffff:169.254.169.254]/",
+    "http://[::ffff:a9fe:a9fe]/",
+    "http://2852039166/",
+    "http://0xA9FEA9FE/",
+    "http://0251.0376.0251.0376/",
+    "http://169.254.43518/",
+  ])("always blocks metadata/link-local %s", async (url) => {
+    await expect(check(url, flag)).rejects.toThrow(METADATA_MESSAGE);
   });
 
-  it("allows private hosts when ALLOW_PRIVATE_URLS is on", async () => {
-    await expect(assertUrlAllowed(new URL("http://localhost/"), { allowPrivateUrls: true })).resolves.toBeUndefined();
+  it.each(["http://0.0.0.0/", "http://0/", "http://[::]/", "http://[::ffff:0.0.0.0]/", "http://100.100.100.200/", "http://224.0.0.1/"])(
+    "always blocks reserved %s",
+    async (url) => {
+      await expect(check(url, flag)).rejects.toThrow(RESERVED_MESSAGE);
+    },
+  );
+
+  it.each(["http://metadata.google.internal/computeMetadata/v1/", "http://metadata/", "http://instance-data/latest/", "http://METADATA.GOOGLE.INTERNAL./"])(
+    "always blocks metadata hostname %s without resolving it",
+    async (url) => {
+      await expect(check(url, flag)).rejects.toThrow(METADATA_MESSAGE);
+    },
+  );
+
+  it("always blocks a public-looking hostname that resolves to the metadata address", async () => {
+    await expect(check("http://innocent.example/", flag, resolvesTo("169.254.169.254"))).rejects.toThrow(METADATA_MESSAGE);
+    await expect(check("http://innocent.example/", flag, resolvesTo("93.184.215.14", "::ffff:169.254.169.254"))).rejects.toThrow(METADATA_MESSAGE);
+  });
+
+  it.each(["http://127.0.0.1:8080/", "http://[::1]/", "http://10.0.0.5/", "http://172.20.1.1/", "http://192.168.1.20/", "http://[fd12::1]/"])(
+    `${flag ? "allows" : "blocks"} private address %s`,
+    async (url) => {
+      const result = check(url, flag);
+      if (flag) await expect(result).resolves.toBeUndefined();
+      else await expect(result).rejects.toThrow(PRIVATE_MESSAGE);
+    },
+  );
+
+  it(`${flag ? "allows" : "blocks"} localhost and host.docker.internal by their resolved addresses`, async () => {
+    const localhost = check("http://localhost/dashboard/", flag, resolvesTo("::1", "127.0.0.1"));
+    const dockerHost = check("http://host.docker.internal/", flag, resolvesTo("192.168.65.254"));
+    if (flag) {
+      await expect(localhost).resolves.toBeUndefined();
+      await expect(dockerHost).resolves.toBeUndefined();
+    } else {
+      await expect(localhost).rejects.toThrow(PRIVATE_MESSAGE);
+      await expect(dockerHost).rejects.toThrow(PRIVATE_MESSAGE);
+    }
   });
 
   it("reports unresolvable hosts", async () => {
     await expect(
-      assertUrlAllowed(new URL("http://nope.invalid/"), {
-        allowPrivateUrls: false,
-        resolver: async () => {
-          throw new Error("ENOTFOUND");
-        },
+      check("http://nope.invalid/", flag, async () => {
+        throw new Error("ENOTFOUND");
       }),
     ).rejects.toThrow(/Could not resolve/);
   });
@@ -71,5 +205,9 @@ describe("rewriteLocalhostForDocker", () => {
     expect(rewriteLocalhostForDocker(new URL("http://mysite.localhost/"), true).hostname).toBe("host.docker.internal");
     expect(rewriteLocalhostForDocker(new URL("http://localhost/"), false).href).toBe("http://localhost/");
     expect(rewriteLocalhostForDocker(new URL("https://example.com/"), true).href).toBe("https://example.com/");
+  });
+
+  it("does not rewrite 0.0.0.0 (it must stay blocked)", () => {
+    expect(rewriteLocalhostForDocker(new URL("http://0.0.0.0/"), true).hostname).toBe("0.0.0.0");
   });
 });

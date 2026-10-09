@@ -89,6 +89,17 @@ When the app runs inside Docker, `localhost` and `127.0.0.1` in URLs you validat
 | **Direct input** | HTML or CSS, always UTF-8. **Fragment** mode wraps the input in a minimal HTML5 page and maps line numbers back to your input. |
 
 - **API (internal for now, documented in Phase 6):** `POST /api/validate` with `{ type: "url" | "html" | "css", value, fragment?, options? }`, and `POST /api/validate/upload` (multipart, `files` + `options` JSON).
+- **SSRF protection** (every request and every redirect hop, on the *resolved* IP addresses):
+
+  | Destination | `ALLOW_PRIVATE_URLS=false` | `ALLOW_PRIVATE_URLS=true` |
+  |---|---|---|
+  | Public addresses | allowed | allowed |
+  | Loopback (127/8, ::1), 10/8, 172.16/12, 192.168/16, fc00::/7, `host.docker.internal` | blocked | allowed |
+  | Cloud metadata & link-local: 169.254.0.0/16, fe80::/10, fd00:ec2::254, `metadata.google.internal`, `metadata`, `instance-data`, … | **blocked** | **blocked** |
+  | 0.0.0.0/8, ::, CGNAT, multicast, broadcast and other reserved ranges | **blocked** | **blocked** |
+
+  IPv4-mapped IPv6 (`::ffff:169.254.169.254`) and decimal/hex/octal IPv4 forms (`http://2852039166/`, `http://0xA9FEA9FE/`) are recognised.
+  Only http and https are allowed.
 - **Score:** `max(0, 100 − 5 × errors − 1 × warnings)`; info messages don't count. A document passes when it has no errors.
 - **Encoding:** BOM → HTTP header → `<meta>` / `@charset`. In auto mode only an HTTP-header charset is forwarded to vnu, so vnu reports encoding problems exactly as validator.w3.org would. An override is forwarded to vnu (optionally only when the document declares nothing).
 - **CSS options** (no jigsaw in v1, so *Medium* is not offered). vnu's CSS checker reports errors only and silently accepts vendor-prefixed properties, so:
@@ -117,3 +128,8 @@ Items deliberately parked until Phase 7 (`chore/hardening`):
 
   None of these run in the app at runtime. `npm audit fix --force` is **not** used because it would
   install breaking major versions; revisit when upstream releases fixed versions.
+- **DNS rebinding.** The SSRF check resolves the host and validates every address, but `fetch` then resolves
+  the name again when it connects. A malicious DNS server could answer differently the second time. Phase 7
+  should validate the address at connect time (custom `lookup` on the HTTP agent) so the checked IP is the one
+  used. Docker Desktop's DNS and many routers already refuse to return link-local answers, which limits this
+  locally.

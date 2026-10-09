@@ -55,9 +55,35 @@ describe("safeFetch", () => {
   });
 
   it("re-checks SSRF rules after every redirect", async () => {
-    const fetchImpl = mockFetch(() => new Response(null, { status: 302, headers: { location: "http://169.254.169.254/latest/meta-data/" } }));
+    const fetchImpl = mockFetch(() => new Response(null, { status: 302, headers: { location: "http://10.0.0.5/admin" } }));
     await expect(safeFetch("https://example.com/", opts(fetchImpl))).rejects.toThrow(/private or local/);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])("blocks a redirect to the metadata service (ALLOW_PRIVATE_URLS=%s)", async (allowPrivateUrls) => {
+    for (const location of ["http://169.254.169.254/latest/meta-data/", "http://0xA9FEA9FE/", "http://metadata.google.internal/", "http://[::ffff:169.254.169.254]/"]) {
+      const fetchImpl = mockFetch(() => new Response(null, { status: 302, headers: { location } }));
+      await expect(safeFetch("https://example.com/", opts(fetchImpl, { allowPrivateUrls }))).rejects.toThrow(/cloud metadata or link-local/);
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("blocks a redirect to a host that resolves to the metadata address, even with the flag on", async () => {
+    const fetchImpl = mockFetch((url) =>
+      url.startsWith("https://example.com") ? new Response(null, { status: 301, headers: { location: "http://evil.example/" } }) : html("never"),
+    );
+    const resolver = async (host: string) => (host === "evil.example" ? ["169.254.169.254"] : ["93.184.215.14"]);
+    await expect(safeFetch("https://example.com/", opts(fetchImpl, { allowPrivateUrls: true, resolver }))).rejects.toThrow(
+      /^“evil\.example” is a cloud metadata or link-local address/,
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows a redirect to a private LAN host only with the flag on", async () => {
+    const make = () =>
+      mockFetch((url) => (url.startsWith("https://example.com") ? new Response(null, { status: 302, headers: { location: "http://192.168.1.20/" } }) : html("lan")));
+    await expect(safeFetch("https://example.com/", opts(make()))).rejects.toThrow(/private or local/);
+    await expect(safeFetch("https://example.com/", opts(make(), { allowPrivateUrls: true }))).resolves.toMatchObject({ finalUrl: "http://192.168.1.20/" });
   });
 
   it("enforces the size limit from Content-Length and while streaming", async () => {
