@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Search } from "lucide-react";
 import { useMessageFilters } from "@/components/validate/settings-store";
 import { Button } from "@/components/ui/button";
@@ -25,7 +25,7 @@ import { StructureView } from "./structure-view";
 
 const DEFAULT_QUERY: MessageQuery = { severities: { error: true, warning: true, info: true }, category: "all", search: "" };
 
-export function ResultsView({ run, options }: { run: RunResult; options: ValidationOptions }) {
+export function ResultsView({ run, options, actions }: { run: RunResult; options: ValidationOptions; actions?: ReactNode }) {
   const [docId, setDocId] = useState(run.documents[0]?.id);
   const doc = run.documents.find((d) => d.id === docId) ?? run.documents[0];
   const multi = run.documents.length > 1;
@@ -45,6 +45,7 @@ export function ResultsView({ run, options }: { run: RunResult; options: Validat
             documents={run.documents.length}
             durationMs={run.durationMs}
             engineVersion={run.engineVersion}
+            actions={actions}
           />
         </CardContent>
       </Card>

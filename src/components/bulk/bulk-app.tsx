@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CircleAlert, ListPlus, Map as MapIcon, X } from "lucide-react";
+import { ReportDialog } from "@/components/report/report-dialog";
 import { ResultsView } from "@/components/results/results-view";
 import { OptionsPanel } from "@/components/validate/options-panel";
 import { useOptions } from "@/components/validate/settings-store";
@@ -23,6 +24,9 @@ import { UrlListForm } from "./url-list-form";
 interface RunState {
   pages: BulkPage[];
   options: ValidationOptions;
+  /** For reports: the sitemap that was read, or "URL list". */
+  target: string;
+  mode: "sitemap" | "url-list";
   running: boolean;
   cancelled: boolean;
   startedAt: number;
@@ -70,7 +74,7 @@ export function BulkApp() {
   }, []);
 
   const start = useCallback(
-    async (urls: string[]) => {
+    async (urls: string[], sitemap?: string) => {
       controller.current?.abort();
       const ac = new AbortController();
       controller.current = ac;
@@ -78,6 +82,8 @@ export function BulkApp() {
       setRun({
         pages: urls.map((url, index) => ({ index, url, status: "queued" })),
         options,
+        target: sitemap ?? "URL list",
+        mode: sitemap ? "sitemap" : "url-list",
         running: true,
         cancelled: false,
         startedAt: Date.now(),
@@ -125,7 +131,7 @@ export function BulkApp() {
               <SitemapPicker busy={busy} onSubmit={start} />
             </TabsContent>
             <TabsContent value="list" className="pt-3">
-              <UrlListForm busy={busy} onSubmit={start} />
+              <UrlListForm busy={busy} onSubmit={(urls) => start(urls)} />
             </TabsContent>
           </Tabs>
           <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -174,7 +180,26 @@ export function BulkApp() {
             </Alert>
           )}
 
-          {summary.passed + summary.failed > 0 && <BulkSummaryCard summary={summary} />}
+          {summary.passed + summary.failed > 0 && (
+            <BulkSummaryCard
+              summary={summary}
+              action={
+                <ReportDialog
+                  label={run.running ? "Report (after the run)" : "Generate report"}
+                  disabled={run.running}
+                  verbose={run.options.verbose}
+                  source={() => ({
+                    kind: "bulk",
+                    target: run.target,
+                    mode: run.mode,
+                    pages: run.pages,
+                    startedAt: new Date(run.startedAt).toISOString(),
+                    cancelled: run.cancelled,
+                  })}
+                />
+              }
+            />
+          )}
 
           <BulkPageTable pages={run.pages} selected={selected} onSelect={setSelected} />
 

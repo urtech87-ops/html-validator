@@ -25,7 +25,7 @@ const OUTCOME_ICON = {
  * Find a site's sitemap, list its URLs with checkboxes and let the user pick
  * up to 200 pages to validate.
  */
-export function SitemapPicker({ busy, onSubmit }: { busy: boolean; onSubmit: (urls: string[]) => void }) {
+export function SitemapPicker({ busy, onSubmit }: { busy: boolean; onSubmit: (urls: string[], sitemap: string) => void }) {
   const [options] = useOptions();
   const [input, setInput] = useState("");
   const [state, setState] = useState<{ kind: "idle" } | { kind: "loading" } | { kind: "error"; message: string } | { kind: "done"; data: SitemapDiscovery }>({
@@ -220,7 +220,8 @@ export function SitemapPicker({ busy, onSubmit }: { busy: boolean; onSubmit: (ur
                   e.preventDefault();
                   // Keep sitemap order for the run.
                   const chosen = urls.map((u) => u.loc).filter((loc) => selected.has(loc));
-                  if (chosen.length) onSubmit(chosen);
+                  // The report names the sitemap that was read (or what the user typed).
+                  if (chosen.length) onSubmit(chosen, state.data.sitemaps[0] ?? state.data.input);
                 }}
               >
                 <SubmitButton busy={busy} disabled={selected.size === 0} label={`Validate ${selected.size} page${selected.size === 1 ? "" : "s"}`} />

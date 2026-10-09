@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CircleAlert, FileCode2, FileUp, Globe } from "lucide-react";
+import { ReportDialog } from "@/components/report/report-dialog";
 import { ResultsView } from "@/components/results/results-view";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent } from "@/components/ui/card";
@@ -100,7 +101,14 @@ export function ValidatorApp() {
         </Alert>
       )}
 
-      {state.kind === "done" && <ResultsView key={state.run.id} run={state.run} options={state.options} />}
+      {state.kind === "done" && (
+        <ResultsView
+          key={state.run.id}
+          run={state.run}
+          options={state.options}
+          actions={<ReportDialog source={() => ({ kind: "single", run: state.run })} verbose={state.options.verbose} />}
+        />
+      )}
     </div>
   );
 }

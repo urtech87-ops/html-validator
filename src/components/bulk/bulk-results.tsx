@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { CircleCheck, CircleDashed, CircleMinus, CircleX, Loader2 } from "lucide-react";
 import { CountPills, ScoreGauge } from "@/components/results/run-summary";
 import { SEVERITY_META } from "@/components/results/severity";
@@ -12,7 +12,7 @@ import { formatMs } from "@/lib/format";
 type SortKey = "order" | "score" | "errors" | "status";
 
 /** Site-wide summary plus "most common issues". */
-export function BulkSummaryCard({ summary }: { summary: BulkSummary }) {
+export function BulkSummaryCard({ summary, action }: { summary: BulkSummary; action?: ReactNode }) {
   const validated = summary.passed + summary.failed;
   return (
     <Card>
@@ -39,6 +39,7 @@ export function BulkSummaryCard({ summary }: { summary: BulkSummary }) {
               {summary.notValidated > 0 && <> · {summary.notValidated} could not be validated</>}
             </p>
           </div>
+          {action && <div className="shrink-0 sm:self-start">{action}</div>}
         </div>
 
         {summary.commonIssues.length > 0 && (
