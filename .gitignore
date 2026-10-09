@@ -34,3 +34,8 @@ public/monaco/
 
 # Playwright MCP scratch output
 .playwright-mcp/
+
+# Claude Code: git worktrees and local state. Only the shared dev-server
+# preview config (.claude/launch.json) is tracked.
+.claude/*
+!.claude/launch.json

@@ -12,3 +12,5 @@ Dockerfile
 docker-compose.yml
 tests
 .playwright-mcp
+# Claude Code worktrees (full repo copies with node_modules) and local state
+.claude
