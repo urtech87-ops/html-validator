@@ -182,7 +182,8 @@ export function HistoryBrowser({ page, query }: { page: HistoryPage; query: Hist
           </CardContent>
         </Card>
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
+        <div className="relative overflow-x-auto rounded-lg border">
+          {/* relative: sr-only text and hidden checkbox inputs are absolutely positioned and would otherwise widen the page on phones. */}
           <table className="w-full min-w-[52rem] text-left text-sm">
             <caption className="sr-only">Saved validation runs</caption>
             <thead className="bg-muted/50 text-xs text-muted-foreground">

@@ -15,9 +15,13 @@ const nextConfig: NextConfig = {
         headers: [
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "X-Frame-Options", value: "DENY" },
-          { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
           { key: "Referrer-Policy", value: "no-referrer" },
         ],
+      },
+      {
+        // Pages only: a CSP here would replace the one API routes set (HTML report downloads are sandboxed).
+        source: "/((?!api/|api$).*)",
+        headers: [{ key: "Content-Security-Policy", value: "frame-ancestors 'none'" }],
       },
     ];
   },

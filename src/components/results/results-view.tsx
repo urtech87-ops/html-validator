@@ -69,7 +69,7 @@ function DocumentPicker({
 }) {
   return (
     <nav aria-label="Validated documents" className="min-w-0 lg:sticky lg:top-18 lg:self-start">
-      <ul className="flex gap-2 overflow-x-auto pb-1 lg:max-h-[calc(100vh-6rem)] lg:flex-col lg:overflow-x-visible lg:overflow-y-auto">
+      <ul className="relative flex gap-2 overflow-x-auto pb-1 lg:max-h-[calc(100vh-6rem)] lg:flex-col lg:overflow-x-visible lg:overflow-y-auto">
         {documents.map((d) => {
           const active = d.id === activeId;
           const name = d.origin === "stylesheet" ? (d.url?.split("/").pop() || d.label) : d.label;
@@ -192,7 +192,7 @@ function DocumentPanel({ doc, options, showTitle }: { doc: DocumentResult; optio
         <DocumentDetails doc={doc} />
 
         <Tabs value={tab} onValueChange={setTab}>
-          <div className="-mx-1 overflow-x-auto px-1 pb-1">
+          <div className="relative -mx-1 overflow-x-auto px-1 pb-1">
             <TabsList>
               <TabsTrigger value="messages">Messages ({doc.messages.length.toLocaleString("en")})</TabsTrigger>
               {structure && (

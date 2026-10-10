@@ -60,7 +60,7 @@ export function ImageReport({ images, onJumpToSource }: { images: ImageInfo[]; o
       {shown.length === 0 ? (
         <p className="text-sm text-muted-foreground">No flagged images.</p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
+        <div className="relative overflow-x-auto rounded-lg border">
           <table className="w-full min-w-[36rem] text-left text-sm">
             <caption className="sr-only">Images and their alt text</caption>
             <thead className="bg-muted/50 text-xs text-muted-foreground">

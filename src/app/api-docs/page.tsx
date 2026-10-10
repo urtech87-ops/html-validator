@@ -36,7 +36,7 @@ function Endpoint({ id, method, path, children }: { id: string; method: string; 
 
 function Fields({ rows }: { rows: Array<[string, string, string]> }) {
   return (
-    <div className="overflow-x-auto rounded-lg border">
+    <div className="relative overflow-x-auto rounded-lg border">
       <table className="w-full min-w-[36rem] text-left text-sm">
         <thead className="bg-muted/50 text-xs text-muted-foreground">
           <tr>

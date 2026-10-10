@@ -166,7 +166,7 @@ export function CompareView({ result }: { result: CompareResult }) {
         <h2 id="compare-docs" className="font-heading text-lg font-semibold">
           {result.kind === "bulk" ? "Pages and stylesheets" : "Documents"}
         </h2>
-        <div className="overflow-x-auto rounded-lg border">
+        <div className="relative overflow-x-auto rounded-lg border">
           <table className="w-full min-w-[44rem] text-left text-sm">
             <thead className="bg-muted/50 text-xs text-muted-foreground">
               <tr>

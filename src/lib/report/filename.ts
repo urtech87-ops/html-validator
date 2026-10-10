@@ -32,7 +32,7 @@ export function downloadHeaders(contentType: string, filename: string): Record<s
     "X-Content-Type-Options": "nosniff",
   };
   if (/^text\/html(;|$)/i.test(contentType)) {
-    headers["Content-Security-Policy"] = "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'";
+    headers["Content-Security-Policy"] = "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'; frame-ancestors 'none'";
   }
   return headers;
 }
