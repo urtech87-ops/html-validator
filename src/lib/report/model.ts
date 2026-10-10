@@ -167,7 +167,8 @@ function documentStatus(doc: DocumentResult): DocumentStatus {
   return doc.passed ? "passed" : "errors";
 }
 
-function toIssues(doc: DocumentResult, pageUrl: string, contents: ReportContents): ReportIssue[] {
+/** A document's messages as report issues with stable IDs (duplicates get -2, -3, …). Also used to compare runs. */
+export function toIssues(doc: DocumentResult, pageUrl: string, contents: ReportContents): ReportIssue[] {
   const documentRef = doc.url ?? doc.label;
   const seen = new Map<string, number>();
   const issues: ReportIssue[] = [];

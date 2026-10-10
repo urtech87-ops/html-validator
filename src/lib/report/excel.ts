@@ -20,21 +20,21 @@ const MAX_CELL = 32_000;
 const HEADER_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1F2937" } };
 const HEADER_FONT: Partial<ExcelJS.Font> = { bold: true, color: { argb: "FFFFFFFF" } };
 
-const SEVERITY_STYLE: Record<Severity, { fill: string; font: string }> = {
+export const SEVERITY_STYLE: Record<Severity, { fill: string; font: string }> = {
   error: { fill: "FFFDE2E1", font: "FF991B1B" },
   warning: { fill: "FFFEF3C7", font: "FF92400E" },
   info: { fill: "FFDBEAFE", font: "FF1E40AF" },
 };
 
-const CHECK_STYLE: Record<CheckStatus, { fill: string; font: string }> = {
+export const CHECK_STYLE: Record<CheckStatus, { fill: string; font: string }> = {
   pass: { fill: "FFDCFCE7", font: "FF166534" },
   warning: { fill: "FFFEF3C7", font: "FF92400E" },
   fail: { fill: "FFFDE2E1", font: "FF991B1B" },
 };
 
-type Cell = string | number | Date | undefined;
+export type Cell = string | number | Date | undefined;
 
-interface Column {
+export interface Column {
   header: string;
   width: number;
   /** Wrap long text. */
@@ -46,13 +46,13 @@ function clip(value: Cell): Cell {
   return typeof value === "string" && value.length > MAX_CELL ? `${value.slice(0, MAX_CELL)}…` : value;
 }
 
-function tint(cell: ExcelJS.Cell, style: { fill: string; font: string }) {
+export function tint(cell: ExcelJS.Cell, style: { fill: string; font: string }) {
   cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: style.fill } };
   cell.font = { ...cell.font, color: { argb: style.font }, bold: true };
 }
 
 /** Create a sheet with a styled, frozen, auto-filtered header row. */
-function addTable(wb: ExcelJS.Workbook, name: string, columns: Column[]): ExcelJS.Worksheet {
+export function addTable(wb: ExcelJS.Workbook, name: string, columns: Column[]): ExcelJS.Worksheet {
   const ws = wb.addWorksheet(name, { views: [{ state: "frozen", ySplit: 1, xSplit: 0 }] });
   ws.columns = columns.map((c) => ({ header: c.header, width: c.width, style: c.numFmt ? { numFmt: c.numFmt } : {} }));
   const header = ws.getRow(1);
@@ -67,7 +67,7 @@ function addTable(wb: ExcelJS.Workbook, name: string, columns: Column[]): ExcelJ
 }
 
 /** Append a data row; wrap text where asked and switch Arabic/RTL cells to right-to-left reading order. */
-function addRow(ws: ExcelJS.Worksheet, columns: Column[], values: Cell[]): ExcelJS.Row {
+export function addRow(ws: ExcelJS.Worksheet, columns: Column[], values: Cell[]): ExcelJS.Row {
   const row = ws.addRow(values.map(clip));
   row.eachCell({ includeEmpty: false }, (cell, col) => {
     const column = columns[col - 1];
@@ -85,7 +85,7 @@ function addRow(ws: ExcelJS.Worksheet, columns: Column[], values: Cell[]): Excel
   return row;
 }
 
-const date = (iso: string | undefined) => (iso && !Number.isNaN(Date.parse(iso)) ? new Date(iso) : undefined);
+export const date = (iso: string | undefined) => (iso && !Number.isNaN(Date.parse(iso)) ? new Date(iso) : undefined);
 
 /* ------------------------------------------------------------- the sheets */
 
@@ -245,20 +245,24 @@ function issuesSheet(wb: ExcelJS.Workbook, model: ReportModel) {
       tint(row.getCell(severityCol), SEVERITY_STYLE[i.severity]);
     }
   }
-  if (rows > 0) {
-    const letter = ws.getColumn(statusCol).letter;
-    // One range rule instead of one per cell; exceljs supports it but its typings omit `dataValidations`.
-    const validations = (ws as unknown as { dataValidations: { add(range: string, rule: ExcelJS.DataValidation): void } }).dataValidations;
-    validations.add(`${letter}2:${letter}${rows + 1}`, {
-      type: "list",
-      allowBlank: true,
-      formulae: [`"${ISSUE_STATUSES.join(",")}"`],
-      showErrorMessage: true,
-      errorStyle: "error",
-      errorTitle: "Status",
-      error: `Choose ${ISSUE_STATUSES.join(", ")}.`,
-    });
-  }
+  addStatusDropdown(ws, statusCol, rows);
+}
+
+/** Open / Fixed / Won't fix dropdown on a column, for data rows 2…rows+1. */
+export function addStatusDropdown(ws: ExcelJS.Worksheet, column: number, rows: number) {
+  if (rows <= 0) return;
+  const letter = ws.getColumn(column).letter;
+  // One range rule instead of one per cell; exceljs supports it but its typings omit `dataValidations`.
+  const validations = (ws as unknown as { dataValidations: { add(range: string, rule: ExcelJS.DataValidation): void } }).dataValidations;
+  validations.add(`${letter}2:${letter}${rows + 1}`, {
+    type: "list",
+    allowBlank: true,
+    formulae: [`"${ISSUE_STATUSES.join(",")}"`],
+    showErrorMessage: true,
+    errorStyle: "error",
+    errorTitle: "Status",
+    error: `Choose ${ISSUE_STATUSES.join(", ")}.`,
+  });
 }
 
 function structureSheet(wb: ExcelJS.Workbook, model: ReportModel) {

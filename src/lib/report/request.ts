@@ -14,9 +14,9 @@ import {
 } from "./types";
 
 /**
- * Parse an untrusted POST /api/report body. The run data comes from the
- * browser (reports are on demand until Phase 6), so every field that reaches a
- * report is type-checked here; anything rendered later is escaped again.
+ * Parse an untrusted POST /api/report body. In the `source` form the run data
+ * comes from the browser, so every field that reaches a report is type-checked
+ * here; anything rendered later is escaped again.
  */
 
 export class ReportRequestError extends Error {}
@@ -94,14 +94,15 @@ function parseSource(input: unknown): ReportSource {
   throw new ReportRequestError("“source.kind” must be \"single\" or \"bulk\".");
 }
 
-export function parseReportRequest(body: unknown, now = new Date()): ReportRequest {
+/** Format, contents and branding of a report request (everything except what the report is about). */
+export function parseReportOptions(body: unknown, now = new Date()): Omit<ReportRequest, "source"> {
   if (!isObject(body)) throw new ReportRequestError("Request body must be a JSON object.");
   const format = REPORT_FORMATS.find((f) => f === body.format) as ReportFormat | undefined;
   if (!format) throw new ReportRequestError(`“format” must be one of: ${REPORT_FORMATS.join(", ")}.`);
-  return {
-    format,
-    contents: parseContents(body.contents),
-    branding: parseBranding(body.branding, now),
-    source: parseSource(body.source),
-  };
+  return { format, contents: parseContents(body.contents), branding: parseBranding(body.branding, now) };
+}
+
+export function parseReportRequest(body: unknown, now = new Date()): ReportRequest {
+  const options = parseReportOptions(body, now);
+  return { ...options, source: parseSource((body as Record<string, unknown>).source) };
 }
