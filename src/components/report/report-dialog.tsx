@@ -33,7 +33,8 @@ interface ReportPrefs {
 
 const DEFAULT_PREFS: ReportPrefs = { format: "pdf", project: "", preparedBy: "" };
 
-const prefsStore = createPersistedStore<ReportPrefs>("markuplens-report-prefs", DEFAULT_PREFS, (raw) => {
+/** Shared with the comparison export (project / prepared by). */
+export const prefsStore = createPersistedStore<ReportPrefs>("markuplens-report-prefs", DEFAULT_PREFS, (raw) => {
   const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   return {
     format: REPORT_FORMATS.find((f) => f === o.format) ?? DEFAULT_PREFS.format,
@@ -74,12 +75,18 @@ function todayLocal(): string {
 
 export function ReportDialog({
   source,
+  runId,
+  onSaved,
   verbose,
   disabled,
   label = "Generate report",
 }: {
-  /** Called when the user generates, so the latest run state is used. */
-  source: () => ReportSource;
+  /** Called when the user generates, so the latest run state is used. Ignored when `runId` is set. */
+  source?: () => ReportSource;
+  /** History id of the run: the server renders it from history and saves the report there. */
+  runId?: string;
+  /** Called after a report was saved to history. */
+  onSaved?: (reportId: string) => void;
   /** Info messages are included by default only when the run was verbose. */
   verbose: boolean;
   disabled?: boolean;
@@ -91,7 +98,9 @@ export function ReportDialog({
   const [reportDate, setReportDate] = useState("");
   const [logo, setLogo] = useState<{ dataUrl: string; name: string }>();
   const [logoError, setLogoError] = useState<string>();
-  const [status, setStatus] = useState<{ kind: "idle" } | { kind: "busy" } | { kind: "done"; name: string } | { kind: "error"; message: string }>({ kind: "idle" });
+  const [status, setStatus] = useState<
+    { kind: "idle" } | { kind: "busy" } | { kind: "done"; name: string; saved: boolean; notSaved?: string } | { kind: "error"; message: string }
+  >({ kind: "idle" });
   const controller = useRef<AbortController | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const ids = { project: useId(), preparedBy: useId(), date: useId(), logo: useId(), logoHint: useId() };
@@ -140,16 +149,16 @@ export function ReportDialog({
     controller.current = ac;
     setStatus({ kind: "busy" });
     try {
-      const name = await downloadReport(
-        {
-          format,
-          contents,
-          branding: { project: prefs.project.trim(), preparedBy: prefs.preparedBy.trim(), reportDate: reportDate || todayLocal(), logo: logo?.dataUrl },
-          source: source(),
-        },
-        ac.signal,
-      );
-      if (!ac.signal.aborted) setStatus({ kind: "done", name });
+      const options = {
+        format,
+        contents,
+        branding: { project: prefs.project.trim(), preparedBy: prefs.preparedBy.trim(), reportDate: reportDate || todayLocal(), logo: logo?.dataUrl },
+      };
+      if (!runId && !source) throw new Error("Nothing to report on.");
+      const result = await downloadReport(runId ? { ...options, runId } : { ...options, source: source!() }, ac.signal);
+      if (ac.signal.aborted) return;
+      setStatus({ kind: "done", name: result.name, saved: !!result.reportId, notSaved: result.notSaved });
+      if (result.reportId) onSaved?.(result.reportId);
     } catch (err) {
       if (!ac.signal.aborted) setStatus({ kind: "error", message: err instanceof Error ? err.message : "The report could not be generated." });
     }
@@ -165,7 +174,11 @@ export function ReportDialog({
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Generate report</DialogTitle>
-          <DialogDescription>Reports are built from these results on demand and downloaded to your computer.</DialogDescription>
+          <DialogDescription>
+            {runId
+              ? "The report is built from the saved run, downloaded, and kept in history so you can download it again."
+              : "Reports are built from these results on demand and downloaded to your computer."}
+          </DialogDescription>
         </DialogHeader>
 
         <form
@@ -294,9 +307,13 @@ export function ReportDialog({
               </Alert>
             )}
             {status.kind === "done" && (
-              <p className="flex items-center gap-1.5 text-sm text-success">
-                <CircleCheck className="size-4" aria-hidden="true" /> Downloaded <span className="font-mono text-xs">{status.name}</span>
-              </p>
+              <div className="space-y-1 text-sm">
+                <p className="flex items-center gap-1.5 text-success">
+                  <CircleCheck className="size-4" aria-hidden="true" /> Downloaded <span className="font-mono text-xs">{status.name}</span>
+                  {status.saved && <span className="text-muted-foreground">· saved to history</span>}
+                </p>
+                {status.notSaved && <p className="text-xs text-muted-foreground">{status.notSaved}</p>}
+              </div>
             )}
           </div>
 

@@ -1,5 +1,5 @@
 /** MarkupLens wordmark: a lens framing a pair of angle brackets. */
-export function Logo({ className }: { className?: string }) {
+export function Logo({ className, compact = false }: { className?: string; /** Hide the wordmark below the sm breakpoint. */ compact?: boolean }) {
   return (
     <span className={`inline-flex items-center gap-2 font-heading font-semibold tracking-tight ${className ?? ""}`}>
       <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true" className="shrink-0">
@@ -14,7 +14,7 @@ export function Logo({ className }: { className?: string }) {
           strokeLinejoin="round"
         />
       </svg>
-      <span className="text-lg">
+      <span className={compact ? "hidden text-lg sm:inline" : "text-lg"}>
         Markup<span className="text-primary">Lens</span>
       </span>
     </span>

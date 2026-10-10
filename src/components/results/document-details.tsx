@@ -47,7 +47,8 @@ export function DocumentDetails({ doc }: { doc: DocumentResult }) {
       </dl>
       {doc.sourceOmitted && (
         <p className="rounded-md bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
-          The source view isn&apos;t kept for documents over 300 KB in bulk runs. Validate this page on its own to see it.
+          The source of this document wasn&apos;t kept: bulk runs leave out documents over 300 KB, and saved runs keep at most
+          10 MB of sources. Validate it again on its own to see it.
         </p>
       )}
       {doc.notices.length > 0 && (
