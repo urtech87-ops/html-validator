@@ -22,6 +22,8 @@ services:
     environment:
       VNU_URL: http://vnu:8888
       RUNNING_IN_DOCKER: "true"
+      # History database + saved reports live on the markuplens-data volume.
+      DATA_DIR: /app/data
     ports:
       - "127.0.0.1:${APP_PORT:-3000}:3000"
     extra_hosts:
