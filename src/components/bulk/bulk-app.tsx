@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CircleAlert, ListPlus, Map as MapIcon, X } from "lucide-react";
+import Link from "next/link";
+import { CircleAlert, History, ListPlus, Map as MapIcon, X } from "lucide-react";
 import { ReportDialog } from "@/components/report/report-dialog";
 import { ResultsView } from "@/components/results/results-view";
 import { OptionsPanel } from "@/components/validate/options-panel";
@@ -14,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { summarizeBulk, type BulkPage } from "@/lib/bulk/aggregate";
 import { DEFAULT_CONCURRENCY, MAX_CONCURRENCY, type BulkEvent } from "@/lib/bulk/types";
-import { streamBulkRun } from "@/lib/client/bulk-client";
+import { loadBulkRerunInput, streamBulkRun } from "@/lib/client/bulk-client";
 import type { ValidationOptions } from "@/lib/validation/options";
 import { BulkPageTable, BulkSummaryCard } from "./bulk-results";
 import { BulkProgress } from "./bulk-progress";
@@ -32,6 +33,8 @@ interface RunState {
   startedAt: number;
   finishedMs?: number;
   error?: string;
+  /** History id of the saved run (from the "start" event). */
+  runId?: string;
 }
 
 export function BulkApp() {
@@ -50,6 +53,8 @@ export function BulkApp() {
       if (!prev) return prev;
       const pages = prev.pages.slice();
       switch (event.type) {
+        case "start":
+          return { ...prev, runId: event.runId };
         case "page-start":
           pages[event.index] = { ...pages[event.index], status: "running" };
           return { ...prev, pages };
@@ -62,6 +67,7 @@ export function BulkApp() {
         case "end":
           return {
             ...prev,
+            runId: event.runId ?? prev.runId,
             running: false,
             cancelled: event.cancelled,
             finishedMs: Date.now() - prev.startedAt,
@@ -74,14 +80,17 @@ export function BulkApp() {
   }, []);
 
   const start = useCallback(
-    async (urls: string[], sitemap?: string) => {
+    /** `saved` = re-run with a saved run's options and concurrency instead of the current settings. */
+    async (urls: string[], sitemap?: string, saved?: { options: ValidationOptions; concurrency: number }) => {
       controller.current?.abort();
       const ac = new AbortController();
       controller.current = ac;
+      const runOptions = saved?.options ?? options;
+      const runConcurrency = saved?.concurrency ?? concurrency;
       setSelected(undefined);
       setRun({
         pages: urls.map((url, index) => ({ index, url, status: "queued" })),
-        options,
+        options: runOptions,
         target: sitemap ?? "URL list",
         mode: sitemap ? "sitemap" : "url-list",
         running: true,
@@ -90,7 +99,7 @@ export function BulkApp() {
       });
       requestAnimationFrame(() => document.getElementById("bulk-run")?.scrollIntoView({ behavior: "smooth", block: "start" }));
       try {
-        await streamBulkRun(urls, options, concurrency, apply, ac.signal);
+        await streamBulkRun(urls, runOptions, runConcurrency, apply, ac.signal, sitemap);
       } catch (err) {
         if (ac.signal.aborted) {
           apply({ type: "end", cancelled: true, durationMs: 0 });
@@ -104,6 +113,30 @@ export function BulkApp() {
   );
 
   const cancel = () => controller.current?.abort();
+
+  // /bulk?rerun=<history id>: run a saved bulk run again with its own URLs, options and concurrency.
+  const [rerunError, setRerunError] = useState<string>();
+  const startRef = useRef(start);
+  useEffect(() => {
+    startRef.current = start;
+  }, [start]);
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("rerun");
+    if (!id) return;
+    let active = true;
+    loadBulkRerunInput(id)
+      .then((input) => {
+        if (!active) return;
+        window.history.replaceState(null, "", "/bulk");
+        void startRef.current(input.urls, input.mode === "sitemap" ? input.target : undefined, { options: input.options, concurrency: input.concurrency });
+      })
+      .catch((err) => {
+        if (active) setRerunError(err instanceof Error ? err.message : "The saved run could not be loaded.");
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const summary = useMemo(() => (run ? summarizeBulk(run.pages) : undefined), [run]);
   const selectedPage = run && selected !== undefined ? run.pages[selected] : undefined;
@@ -157,6 +190,14 @@ export function BulkApp() {
         </CardContent>
       </Card>
 
+      {rerunError && (
+        <Alert variant="destructive">
+          <CircleAlert aria-hidden="true" />
+          <AlertTitle>Re-run failed</AlertTitle>
+          <AlertDescription>{rerunError}</AlertDescription>
+        </Alert>
+      )}
+
       {run && summary && (
         <section id="bulk-run" aria-label="Bulk run" className="scroll-mt-20 space-y-4">
           <Card>
@@ -171,6 +212,18 @@ export function BulkApp() {
               />
             </CardContent>
           </Card>
+
+          {run.runId && (
+            <p className="flex items-center gap-1.5 text-sm text-muted-foreground" data-testid="saved-notice">
+              <History className="size-4" aria-hidden="true" />
+              {run.running ? "Saving to history as pages finish." : "Saved to history."}
+              {!run.running && (
+                <Link href={`/history/${run.runId}`} className="font-medium text-foreground underline underline-offset-4">
+                  Open saved run
+                </Link>
+              )}
+            </p>
+          )}
 
           {run.error && (
             <Alert variant="destructive">
@@ -188,6 +241,7 @@ export function BulkApp() {
                   label={run.running ? "Report (after the run)" : "Generate report"}
                   disabled={run.running}
                   verbose={run.options.verbose}
+                  runId={run.runId}
                   source={() => ({
                     kind: "bulk",
                     target: run.target,

@@ -4,6 +4,8 @@ node_modules
 .env
 .env*.local
 data
+backups
+src/generated
 coverage
 test-results
 playwright-report

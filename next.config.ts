@@ -6,8 +6,9 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
   poweredByHeader: false,
-  // Report generators load from node_modules at runtime (playwright-core is external by default).
-  serverExternalPackages: ["exceljs", "playwright-core"],
+  // Report generators and the SQLite driver load from node_modules at runtime
+  // (playwright-core and better-sqlite3 are external by default; listed for clarity).
+  serverExternalPackages: ["exceljs", "playwright-core", "better-sqlite3", "@prisma/adapter-better-sqlite3"],
   // playwright-core reads browsers.json etc. dynamically, which file tracing can't see.
   outputFileTracingIncludes: {
     "/api/report": ["./node_modules/playwright-core/**/*"],

@@ -11,11 +11,11 @@ export type PageStatus = "queued" | "running" | "done" | "error" | "cancelled";
 
 /** One line of the NDJSON stream from POST /api/bulk. */
 export type BulkEvent =
-  | { type: "start"; total: number; concurrency: number }
+  | { type: "start"; total: number; concurrency: number; /** History id of the saved run. */ runId?: string }
   | { type: "page-start"; index: number; url: string }
   | { type: "page-done"; index: number; url: string; run: RunResult }
   | { type: "page-error"; index: number; url: string; error: string }
-  | { type: "end"; cancelled: boolean; durationMs: number };
+  | { type: "end"; cancelled: boolean; durationMs: number; runId?: string };
 
 export interface SitemapUrl {
   loc: string;

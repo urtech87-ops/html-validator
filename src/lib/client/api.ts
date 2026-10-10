@@ -3,7 +3,10 @@
 import type { ValidationOptions } from "@/lib/validation/options";
 import type { RunResult } from "@/lib/validation/types";
 
-async function parse(res: Response): Promise<RunResult> {
+/** A validation result plus its history id (absent when saving was skipped or failed). */
+export type SavedRunResult = RunResult & { runId?: string; saveError?: string };
+
+async function parse(res: Response): Promise<SavedRunResult> {
   let body: unknown;
   try {
     body = await res.json();
@@ -14,7 +17,7 @@ async function parse(res: Response): Promise<RunResult> {
     const message = (body as { error?: string })?.error;
     throw new Error(message || `Validation failed (HTTP ${res.status}).`);
   }
-  return body as RunResult;
+  return body as SavedRunResult;
 }
 
 export async function validateUrlRequest(url: string, options: ValidationOptions, signal?: AbortSignal) {

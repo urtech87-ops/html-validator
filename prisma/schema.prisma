@@ -1,0 +1,76 @@
+// MarkupLens history database (SQLite, WAL mode).
+// The file lives in DATA_DIR (./data for `npm run dev`, /app/data in Docker);
+// saved report files live next to it in DATA_DIR/reports/.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+/// One validation run: a single URL / upload / direct input, or a whole bulk run.
+model Run {
+  id            String    @id
+  createdAt     DateTime  @default(now())
+  finishedAt    DateTime?
+  /// "single" | "bulk"
+  kind          String
+  /// "url" | "upload" | "html" | "css" | "sitemap" | "url-list"
+  inputType     String
+  /// What the user validated (URL, file names, "Direct input", sitemap URL, "URL list").
+  target        String
+  /// Normalised key used to find earlier runs of the same target (see src/lib/history/target-key.ts).
+  targetKey     String
+  /// "running" | "done" | "cancelled" | "interrupted"
+  status        String
+  score         Int?
+  passed        Boolean?
+  errors        Int       @default(0)
+  warnings      Int       @default(0)
+  info          Int       @default(0)
+  /// Documents (single run) or pages (bulk run).
+  pageCount     Int       @default(0)
+  /// Bulk: pages finished so far.
+  pagesDone     Int       @default(0)
+  durationMs    Int?
+  engineVersion String?
+  /// ValidationOptions as JSON.
+  options       String
+  /// gzipped JSON needed to re-run (null when the input was too large to keep).
+  input         Bytes?
+  canRerun      Boolean   @default(false)
+  /// gzipped JSON: RunResult (single) or the bulk page list.
+  results       Bytes?
+  /// Bytes stored for this run in the database (input + results), for retention.
+  sizeBytes     Int       @default(0)
+  reports       Report[]
+
+  @@index([createdAt])
+  @@index([targetKey, createdAt])
+  @@index([status])
+}
+
+/// A report file generated from a saved run. The file is DATA_DIR/reports/<file>.
+model Report {
+  id          String   @id
+  runId       String
+  run         Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  /// "pdf" | "xlsx" | "html" | "json" | "csv"
+  format      String
+  filename    String
+  contentType String
+  sizeBytes   Int
+  /// Path relative to DATA_DIR/reports.
+  file        String
+  /// ReportContents as JSON.
+  contents    String
+  /// Branding as JSON (without the logo image).
+  branding    String
+
+  @@index([runId, createdAt])
+  @@index([createdAt])
+}

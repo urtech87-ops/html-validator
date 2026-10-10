@@ -1,3 +1,4 @@
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { getConfig } from "@/lib/config";
 
@@ -9,6 +10,9 @@ describe("getConfig", () => {
       vnuTimeoutMs: 30_000,
       allowPrivateUrls: false,
       runningInDocker: false,
+      dataDir: path.resolve("./data"),
+      historyMaxRuns: 500,
+      historyMaxMb: 2048,
     });
   });
 
@@ -23,6 +27,13 @@ describe("getConfig", () => {
     expect(config.vnuTimeoutMs).toBe(10_000);
     expect(config.allowPrivateUrls).toBe(true);
     expect(config.runningInDocker).toBe(true);
+  });
+
+  it("reads the data folder and history limits", () => {
+    const config = getConfig({ DATA_DIR: "/app/data", HISTORY_MAX_RUNS: "20", HISTORY_MAX_MB: "64" } as unknown as NodeJS.ProcessEnv);
+    expect(config.dataDir).toBe(path.resolve("/app/data"));
+    expect(config.historyMaxRuns).toBe(20);
+    expect(config.historyMaxMb).toBe(64);
   });
 
   it("falls back on invalid numbers and unknown booleans", () => {

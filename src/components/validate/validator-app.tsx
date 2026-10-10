@@ -1,15 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CircleAlert, FileCode2, FileUp, Globe } from "lucide-react";
+import Link from "next/link";
+import { CircleAlert, FileCode2, FileUp, Globe, History } from "lucide-react";
 import { ReportDialog } from "@/components/report/report-dialog";
 import { ResultsView } from "@/components/results/results-view";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { validateFilesRequest, validateTextRequest, validateUrlRequest } from "@/lib/client/api";
+import { validateFilesRequest, validateTextRequest, validateUrlRequest, type SavedRunResult } from "@/lib/client/api";
 import type { ValidationOptions } from "@/lib/validation/options";
-import type { RunResult } from "@/lib/validation/types";
 import { DirectInputForm, type DirectInput } from "./direct-input-form";
 import { OptionsPanel } from "./options-panel";
 import { useOptions } from "./settings-store";
@@ -20,7 +20,7 @@ type State =
   | { kind: "idle" }
   | { kind: "busy" }
   | { kind: "error"; message: string }
-  | { kind: "done"; run: RunResult; options: ValidationOptions };
+  | { kind: "done"; run: SavedRunResult; options: ValidationOptions };
 
 export function ValidatorApp() {
   const [options] = useOptions();
@@ -29,7 +29,7 @@ export function ValidatorApp() {
   const busy = state.kind === "busy";
 
   const run = useCallback(
-    async (request: (signal: AbortSignal) => Promise<RunResult>) => {
+    async (request: (signal: AbortSignal) => Promise<SavedRunResult>) => {
       controller.current?.abort();
       const ac = new AbortController();
       controller.current = ac;
@@ -102,13 +102,45 @@ export function ValidatorApp() {
       )}
 
       {state.kind === "done" && (
-        <ResultsView
-          key={state.run.id}
-          run={state.run}
-          options={state.options}
-          actions={<ReportDialog source={() => ({ kind: "single", run: state.run })} verbose={state.options.verbose} />}
-        />
+        <>
+          <SavedNotice run={state.run} />
+          <ResultsView
+            key={state.run.id}
+            run={state.run}
+            options={state.options}
+            actions={
+              <ReportDialog
+                runId={state.run.runId}
+                source={() => ({ kind: "single", run: state.run })}
+                verbose={state.options.verbose}
+              />
+            }
+          />
+        </>
       )}
     </div>
   );
+}
+
+/** "Saved to history" line above the results (or why it wasn't saved). */
+function SavedNotice({ run }: { run: SavedRunResult }) {
+  if (run.runId) {
+    return (
+      <p className="flex items-center gap-1.5 text-sm text-muted-foreground" data-testid="saved-notice">
+        <History className="size-4" aria-hidden="true" />
+        Saved to history.
+        <Link href={`/history/${run.runId}`} className="font-medium text-foreground underline underline-offset-4">
+          Open saved run
+        </Link>
+      </p>
+    );
+  }
+  if (run.saveError) {
+    return (
+      <p className="flex items-center gap-1.5 text-sm text-warning-foreground">
+        <CircleAlert className="size-4" aria-hidden="true" /> {run.saveError}
+      </p>
+    );
+  }
+  return null;
 }
