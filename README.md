@@ -6,7 +6,8 @@ never calls the public W3C services.
 
 The full specification lives in [docs/SPEC.md](docs/SPEC.md).
 
-> **Status:** Phase 5 (reports): PDF, Excel, HTML, JSON and CSV reports with branding, for single and bulk runs.
+> **Status:** Phase 6 (history & API): every run is saved, with search, re-run, comparison of runs, saved
+> reports and a documented JSON API.
 
 ## Requirements
 
@@ -27,6 +28,9 @@ cp .env.example .env
 | `VNU_TIMEOUT_MS` | `30000` | Timeout for vnu calls |
 | `ALLOW_PRIVATE_URLS` | `true` | Allow validating localhost/LAN/VPN URLs. A notice is shown in the footer while it is on |
 | `APP_PORT` | `3000` | Host port for the app container (bound to `127.0.0.1` only) |
+| `DATA_DIR` | `./data` | Folder for the history database (`markuplens.db`) and saved reports (`reports/`). Compose overrides it to `/app/data`, the `markuplens-data` volume |
+| `HISTORY_MAX_RUNS` | `500` | Keep at most this many runs; the oldest are deleted first |
+| `HISTORY_MAX_MB` | `2048` | Keep the stored history (database blobs + saved report files) under this many MiB; the oldest runs are deleted first |
 
 ## vnu version pin
 
@@ -53,7 +57,10 @@ docker compose up -d vnu
 npm run dev
 ```
 
-Open http://localhost:3000. The "Validation engine" card should show **Online**.
+Open http://127.0.0.1:3000. The "Validation engine" card should show **Online**. `npm run dev` listens on
+`127.0.0.1` only and first applies the database migrations to `./data/markuplens.db` (`prisma migrate deploy`),
+so history works without an extra step. Stop the Docker app container first (`docker compose stop app`): both
+use port 3000.
 
 ### PDF reports in local development (Playwright browser)
 
@@ -92,11 +99,16 @@ The Compose project is named `markuplens` (`name:` in `docker-compose.yml`), so 
 worktree replaces the same `app`/`vnu` containers and reuses the `markuplens_markuplens-data` volume instead
 of starting a second stack.
 
+On start the container applies the committed database migrations with the official `prisma migrate deploy`
+to `/app/data/markuplens.db` on the `markuplens-data` volume, then starts `node server.js`. If the migration
+fails, it prints `MarkupLens: ERROR - the database migration failed, so the app was not started.` and exits
+(see `docker compose logs app`).
+
 The app image includes what PDF reports need: the Playwright **Chromium headless shell** (matching the
 locked `playwright-core` version) and fonts, **`fonts-noto-core`** (Noto Sans, **Noto Sans Arabic**, Noto
 Naskh Arabic) plus **DejaVu Sans Mono** for code extracts. Without Arabic-capable fonts Chromium would print
-Arabic as empty boxes. The app image is about 1.4 GB (as reported by `docker image ls`); check that C: has at
-least 3 GB free before `docker compose up --build`.
+Arabic as empty boxes. It also carries the Prisma CLI for the migrations. The app image is about 1.76 GB (as
+reported by `docker image ls`); check that C: has at least 3 GB free before `docker compose up --build`.
 
 When the app runs inside Docker, `localhost` and `127.0.0.1` in URLs you validate are rewritten to
 `host.docker.internal`, so sites served by XAMPP on your machine can still be checked.
@@ -105,13 +117,16 @@ When the app runs inside Docker, `localhost` and `127.0.0.1` in URLs you validat
 
 | Command | What it does |
 |---|---|
-| `npm run dev` | Next.js dev server |
-| `npm run build` / `npm start` | Production build / server |
+| `npm run dev` | Applies migrations, then the Next.js dev server on http://127.0.0.1:3000 |
+| `npm run build` / `npm start` | Production build / server (`npm start` also listens on `127.0.0.1` only) |
+| `npm run db:migrate` | Apply the committed migrations to `DATA_DIR/markuplens.db` (`prisma migrate deploy`) |
+| `npm run db:generate` | Regenerate the Prisma client (`src/generated/prisma`, git-ignored; build, dev, typecheck and tests do it for you) |
+| `npm run db:backup` | Copy the history database and saved reports into `backups/<date_time>/` (see [Backing up history](#backing-up-history)) |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | Generate route types and run `tsc` |
-| `npm test` | Vitest unit tests |
-| `npm run test:integration` | Fixture, pipeline, bulk and report (Excel + PDF) tests against the real vnu (needs `docker compose up -d vnu` and the [Playwright browser](#pdf-reports-in-local-development-playwright-browser)) |
-| `npm run test:docker` | Report tests against the running Docker app (`docker compose up -d --build` first): renders a PDF with Arabic extracts **inside the container** and checks the Noto Arabic fonts are embedded and the Arabic text is extractable. Set `MARKUPLENS_URL` to use another address (default `http://127.0.0.1:3000`) |
+| `npm test` | Vitest unit tests (history tests use throwaway databases under `test-results/`) |
+| `npm run test:integration` | Fixture, pipeline, bulk, report (Excel + PDF) and history tests against the real vnu (needs `docker compose up -d vnu` and the [Playwright browser](#pdf-reports-in-local-development-playwright-browser)) |
+| `npm run test:docker` | Report tests against the running Docker app (`docker compose up -d --build` first): renders a PDF with Arabic extracts **inside the container** and checks the Noto Arabic fonts are embedded and the Arabic text is extractable; saves runs and reports through the API, checks the localhost guard and that a failed migration stops the container. Set `MARKUPLENS_URL` to use another address (default `http://127.0.0.1:3000`) |
 | `node scripts/pdf-to-png.mjs <file.pdf> <outPrefix> [pages] [scale]` | Render PDF pages to PNG (pdf.js) to eyeball a report, e.g. `test-results/docker-arabic-report.pdf` |
 | `npm run fixtures:update` | Re-record `tests/fixtures/*.expected.json` from the pinned vnu (only after changing `VNU_IMAGE`) |
 | `npm run vnu:up` / `npm run vnu:down` | Start / stop only the vnu container |
@@ -124,7 +139,7 @@ When the app runs inside Docker, `localhost` and `127.0.0.1` in URLs you validat
 | **Upload** | `.html .htm .xhtml .css .svg`, up to 20 files, 5 MB each. Extension, MIME type and content are checked (archives/binaries are rejected). |
 | **Direct input** | HTML or CSS, always UTF-8. **Fragment** mode wraps the input in a minimal HTML5 page and maps line numbers back to your input. |
 
-- **API (internal for now, documented in Phase 6):** `POST /api/validate` with `{ type: "url" | "html" | "css", value, fragment?, options? }`, and `POST /api/validate/upload` (multipart, `files` + `options` JSON).
+- **API:** `POST /api/validate` and `POST /api/validate/upload`; see [API](#api) and the `/api-docs` page.
 - **SSRF protection** (every request and every redirect hop, on the *resolved* IP addresses):
 
   | Destination | `ALLOW_PRIVATE_URLS=false` | `ALLOW_PRIVATE_URLS=true` |
@@ -198,9 +213,10 @@ Direct-input **fragments** skip the page-level checks (h1, landmarks, lang/RTL, 
 
 ## Reports
 
-**Generate report** appears on single-page results (next to the score) and on the bulk **Site summary**
-once the run has finished. Reports are built **on demand** from the results in your browser and downloaded;
-saving them to history and re-downloading them comes with Phase 6.
+**Generate report** appears on single-page results (next to the score), on the bulk **Site summary** once the
+run has finished, and on every saved run in History. Reports are built on the server from the **saved run**,
+downloaded, and saved with the run so they can be downloaded again from History (newest 20 per run; a report
+over 100 MB is downloaded but not saved).
 
 | Format | Contents |
 |---|---|
@@ -245,12 +261,105 @@ are left out, so the ID stays the same when unrelated edits move the issue. Iden
   inside code extracts uses the Arabic font rather than a monospace font's narrow Arabic glyphs.
 - Excel: any cell containing Arabic (or Hebrew, Urdu, …) text uses **right-to-left reading order**.
 
-### API
+`POST /api/report` with `{ runId, format, contents?, branding? }` returns the file (see [API](#api)). The
+Phase 5 form with `source` (the results themselves) still works but isn't documented and isn't saved.
 
-`POST /api/report` with `{ format, contents, branding, source }`, where `source` is
-`{ kind: "single", run }` or `{ kind: "bulk", target, mode, pages, startedAt, cancelled }` (the results the UI
-already holds), returns the file with a `Content-Disposition` download name. Phase 6 replaces `source` with a
-saved `runId` and documents the API.
+## History (`/history`)
+
+- **Every run is saved**: single URL, upload and direct-input runs when they finish (`/api/validate` and
+  `/api/validate/upload` return its `runId`); bulk runs **as they go**, so a cancelled run keeps the pages it
+  finished (a run cut off by a restart shows as *Interrupted*). Saved: input type, target, options, results
+  (gzipped JSON), score, counts, timestamps and the input needed to **re-run** it.
+- **Size rules:** document sources are kept up to **10 MB per run** (the source view says when a source wasn't
+  kept); bulk runs still drop sources over 300 KB. An input over 10 MB (large uploads) isn't kept, so that run
+  can't be re-run.
+- **Retention:** at most `HISTORY_MAX_RUNS` (500) runs and `HISTORY_MAX_MB` (2048 MiB) of stored data, the oldest
+  runs (with their reports) deleted first; runs in progress are never deleted. After deletions the database is
+  compacted (`VACUUM`) once at least a quarter of it, or 64 MB, is free space.
+- **History page:** search (target or run ID), filter by type and result, sort (date, score, errors, target),
+  25 runs per page, delete (one or many), **re-run with the original options** (single runs run on the server;
+  bulk runs restart on `/bulk` with their URLs, options and concurrency), and **compare** two selected runs.
+- **Saved run** (`/history/<id>`): the full results as after the run, its options, saved reports (download
+  again / delete), Generate report, Re-run, Delete and **Compare with previous run** (the latest earlier run of
+  the same target).
+
+### Comparing runs (`/history/compare?a=<id>&b=<id>`)
+
+- The earlier run is always "before". Issues are matched by the **same Issue ID as the Excel report** (document
+  URL + message + whitespace-collapsed extract; line numbers ignored; `-2`, `-3` for duplicates in a document):
+  **new** (only later), **fixed** (only earlier), **unchanged** (both). An unchanged issue whose severity
+  changed is marked *before → after*.
+- **Single runs** are matched by target (normalised URL, `direct:html` / `direct:css`, or the uploaded file
+  names) and compared document by document. **Bulk runs** are compared by site, page by page (URL, fragment
+  ignored): pages only in one run are listed as added / removed, pages that failed or weren't checked in
+  either run as *not comparable*; a stylesheet linked from many pages is compared and counted **once**.
+- A warning lists **options that differ** between the runs (encoding, error pages, verbose, User-Agent, CSS
+  warning level, vendor prefixes), since they change results; a changed validator version is noted too.
+- **Download JSON** (`schema: "markuplens-compare"`, `version: 1`) or **Download comparison (Excel)**: sheets
+  *Comparison Info* (both runs, scores, options-difference warning, totals, branding), *Pages* (per page or
+  document: URL, score before/after, new, fixed, unchanged, comparable) and *Issues* (Issue ID, page URL,
+  document, change, severity before/after, message, line, extract, suggested fix, Status dropdown, Notes).
+  Same styling as the report workbook: frozen, filtered headers; Change coloured red (New), green (Fixed),
+  grey (Unchanged); Arabic cells right-to-left. Project / prepared by come from the report dialog's saved
+  branding.
+
+## API
+
+Documented on the **`/api-docs`** page. In short:
+
+- `POST /api/validate` — `{ type: "url" | "html" | "css", value, fragment?, options?, save? }` → the
+  normalised results plus `runId` (`save: true` by default; `save: false` skips history).
+- `POST /api/validate/upload` — multipart `files` (+ `options` JSON, `save=false`) → same response.
+- `POST /api/report` — `{ runId, format: "pdf" | "xlsx" | "html" | "json" | "csv", contents?, branding? }` →
+  the file; `X-Report-Id` is the saved report's id.
+- `GET /api/history/reports/:id` — download a saved report again.
+
+**Localhost only:** the app listens on `127.0.0.1` (`next dev -H 127.0.0.1`; Compose publishes
+`127.0.0.1:3000`) and answers only requests whose `Host` is `localhost`, `127.0.0.1` or `[::1]` (any port),
+which also stops DNS-rebinding pages. Pages are checked in `src/proxy.ts` (API routes are left out there
+because Proxy buffers request bodies, 10 MB by default); every API route handler is wrapped in `localOnly()`,
+which also refuses requests whose `Origin` is another site. A unit test fails if a route isn't wrapped. The
+Docker healthcheck (`fetch('http://127.0.0.1:3000/api/health')`) passes the check.
+
+Other routes used by the UI: `GET /api/history` (list), `GET`/`DELETE /api/history/:id`,
+`POST /api/history/:id/rerun`, `GET /api/history/:id/input` (bulk re-run), `DELETE /api/history/reports/:id`,
+`GET`/`POST /api/history/compare`, `POST /api/bulk`, `POST /api/sitemap`, `GET /api/health`.
+
+## Backing up history
+
+History is one SQLite file (`markuplens.db`, WAL mode) plus the `reports/` folder, both in `DATA_DIR`.
+
+**`npm run dev` (./data):**
+
+```bash
+npm run db:backup
+```
+
+copies the database (with SQLite's online backup, safe while the app runs) and `data/reports` into
+`backups/<date_time>/` (git- and Docker-ignored). To restore, stop `npm run dev`, then copy `markuplens.db` and
+`reports/` from a backup folder back into `data/` (delete `data/markuplens.db-wal` and `-shm` if present).
+
+**Docker (the `markuplens_markuplens-data` volume):** stop the app so the database is consistent, archive the
+volume into `./backups` with the app image itself, and start it again. This works in PowerShell; in Git Bash
+run `export MSYS_NO_PATHCONV=1` first, otherwise `/backup` is rewritten to a Windows path and the archive
+isn't written.
+
+```bash
+docker compose stop app
+docker compose run --rm --no-deps -v ./backups:/backup --entrypoint sh app -c 'tar czf /backup/markuplens-data-$(date +%Y%m%d-%H%M%S).tgz -C /app/data .'
+docker compose start app
+```
+
+The archive name uses the container's clock (UTC). To restore one (this **replaces** the current history; the
+archive is checked before anything is deleted), put its name in `f=`:
+
+```bash
+docker compose stop app
+docker compose run --rm --no-deps -v ./backups:/backup --entrypoint sh app -c 'f=/backup/markuplens-data-20261010-110336.tgz && tar tzf "$f" >/dev/null && find /app/data -mindepth 1 -delete && tar xzf "$f" -C /app/data'
+docker compose start app
+```
+
+On start the app applies any newer migrations to the restored database.
 
 ## Health check
 
@@ -277,7 +386,7 @@ Items deliberately parked until Phase 7 (`chore/hardening`):
   reachable. Revisit when exceljs updates `uuid`.
 - **npm audit: 2 low, runtime (client).** `monaco-editor` → `dompurify` (IN_PLACE sanitising issues); also on
   `main`, newly published advisories. Monaco is only used to show code as text.
-- **DNS rebinding.** The SSRF check resolves the host and validates every address, but `fetch` then resolves
+- **DNS rebinding (outgoing fetches).** The SSRF check resolves the host and validates every address, but `fetch` then resolves
   the name again when it connects. A malicious DNS server could answer differently the second time. Phase 7
   should validate the address at connect time (custom `lookup` on the HTTP agent) so the checked IP is the one
   used. Docker Desktop's DNS and many routers already refuse to return link-local answers, which limits this
