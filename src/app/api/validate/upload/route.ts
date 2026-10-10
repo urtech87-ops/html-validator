@@ -1,13 +1,16 @@
+import { trySaveSingleRun, wantsSave } from "@/lib/history/store";
+import { MAX_SAVED_SOURCE_BYTES, type RerunInput } from "@/lib/history/types";
+import { localOnly } from "@/lib/http/local-only";
 import { parseOptions } from "@/lib/validation/options";
 import { validateUploads, type UploadedFile } from "@/lib/validation/run";
 import { checkUpload, MAX_UPLOAD_FILES } from "@/lib/validation/upload";
 
 /**
  * POST /api/validate/upload  (multipart/form-data)
- * Fields: files (one or more), options (JSON string, optional).
- * Returns a normalised RunResult with one document per file.
+ * Fields: files (one or more), options (JSON string, optional), save ("false" to skip history).
+ * Returns a normalised RunResult with one document per file, plus `runId` when saved.
  */
-export async function POST(request: Request) {
+export const POST = localOnly(async (request: Request) => {
   let form: FormData;
   try {
     form = await request.formData();
@@ -43,5 +46,11 @@ export async function POST(request: Request) {
   }
 
   if (errors.length > 0) return Response.json({ error: errors.join(" ") , errors }, { status: 400 });
-  return Response.json(await validateUploads(files, options));
-}
+  const run = await validateUploads(files, options);
+  if (!wantsSave(form.get("save"))) return Response.json(run);
+  // The files are kept for re-runs when they fit in the saved-input limit.
+  const total = files.reduce((n, f) => n + f.bytes.byteLength, 0);
+  const rerun: RerunInput | null =
+    total <= MAX_SAVED_SOURCE_BYTES ? { type: "upload", files: files.map((f) => ({ name: f.name, kind: f.kind, base64: Buffer.from(f.bytes).toString("base64") })) } : null;
+  return Response.json({ ...run, ...(await trySaveSingleRun(run, options, rerun)) });
+});

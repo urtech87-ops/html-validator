@@ -2,13 +2,14 @@ import { getConfig } from "@/lib/config";
 import { discoverSitemap } from "@/lib/bulk/sitemap";
 import { BlockedUrlError } from "@/lib/fetch/ssrf";
 import { USER_AGENTS, parseOptions } from "@/lib/validation/options";
+import { localOnly } from "@/lib/http/local-only";
 
 /**
  * POST /api/sitemap
  * Body: { url: string, options?: { userAgent } }
  * Finds and reads the site's sitemap(s) and returns the page URLs.
  */
-export async function POST(request: Request) {
+export const POST = localOnly(async (request: Request) => {
   let body: Record<string, unknown>;
   try {
     body = (await request.json()) as Record<string, unknown>;
@@ -32,4 +33,4 @@ export async function POST(request: Request) {
     if (err instanceof BlockedUrlError) return Response.json({ error: err.message }, { status: 400 });
     throw err;
   }
-}
+});

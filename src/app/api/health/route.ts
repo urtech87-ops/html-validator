@@ -2,12 +2,13 @@ import { connection } from "next/server";
 import pkg from "../../../../package.json";
 import { getConfig } from "@/lib/config";
 import { checkVnuHealth } from "@/lib/vnu/health";
+import { localOnly } from "@/lib/http/local-only";
 
 /**
  * GET /api/health
  * 200 when the app and the vnu engine are both healthy, 503 otherwise.
  */
-export async function GET() {
+export const GET = localOnly(async () => {
   await connection(); // always evaluate at request time, never prerender
 
   const config = getConfig();
@@ -23,4 +24,4 @@ export async function GET() {
     },
     { status: vnu.ok ? 200 : 503, headers: { "Cache-Control": "no-store" } },
   );
-}
+});

@@ -1,15 +1,20 @@
+import { randomUUID } from "node:crypto";
 import { runBulk } from "@/lib/bulk/runner";
 import { DEFAULT_CONCURRENCY, MAX_BULK_URLS, MAX_CONCURRENCY, type BulkEvent } from "@/lib/bulk/types";
 import { parseUrlList } from "@/lib/bulk/url-list";
+import { BulkRecorder, wantsSave } from "@/lib/history/store";
+import { localOnly } from "@/lib/http/local-only";
 import { parseOptions } from "@/lib/validation/options";
 
 /**
  * POST /api/bulk
- * Body: { urls: string[], options?: ValidationOptions, concurrency?: number }
+ * Body: { urls: string[], options?: ValidationOptions, concurrency?: number,
+ *         mode?: "sitemap" | "url-list", sitemap?: string, save?: boolean }
  * Streams newline-delimited JSON (BulkEvent per line) as pages finish.
- * Aborting the request (closing the connection) cancels the run.
+ * Aborting the request (closing the connection) cancels the run. The run is
+ * saved to history as it goes (its id is in the "start" event), cancelled runs included.
  */
-export async function POST(request: Request) {
+export const POST = localOnly(async (request: Request) => {
   let body: Record<string, unknown>;
   try {
     body = (await request.json()) as Record<string, unknown>;
@@ -27,6 +32,17 @@ export async function POST(request: Request) {
   const requested = Number(body.concurrency);
   const concurrency = Number.isInteger(requested) ? Math.min(MAX_CONCURRENCY, Math.max(1, requested)) : DEFAULT_CONCURRENCY;
   const options = parseOptions(body.options);
+  const sitemap = typeof body.sitemap === "string" && body.sitemap.trim() ? body.sitemap.trim().slice(0, 2048) : undefined;
+  const mode = body.mode === "sitemap" && sitemap ? "sitemap" : "url-list";
+
+  let recorder: BulkRecorder | undefined;
+  if (wantsSave(body.save)) {
+    try {
+      recorder = await BulkRecorder.start({ id: randomUUID(), urls: parsed.urls, options, concurrency, mode, target: mode === "sitemap" ? sitemap! : "URL list" });
+    } catch (err) {
+      console.error("Could not start saving the bulk run to history:", err);
+    }
+  }
 
   const controller = new AbortController();
   request.signal.addEventListener("abort", () => controller.abort(), { once: true });
@@ -34,7 +50,7 @@ export async function POST(request: Request) {
 
   const stream = new ReadableStream<Uint8Array>({
     start(streamController) {
-      const emit = (event: BulkEvent) => {
+      const send = (event: BulkEvent) => {
         if (controller.signal.aborted && event.type !== "end") return;
         try {
           streamController.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
@@ -42,9 +58,21 @@ export async function POST(request: Request) {
           controller.abort(); // client went away
         }
       };
+      let end: Extract<BulkEvent, { type: "end" }> | undefined;
+      const emit = (event: BulkEvent) => {
+        recorder?.record(event);
+        if (event.type === "start") send({ ...event, runId: recorder?.id });
+        else if (event.type === "end") end = event; // sent once the run is saved
+        else send(event);
+      };
       runBulk(parsed.urls, options, concurrency, emit, controller.signal)
         // runBulk only throws on an unexpected bug; still end the stream cleanly.
-        .catch(() => emit({ type: "end", cancelled: controller.signal.aborted, durationMs: 0 }))
+        .catch(() => undefined)
+        .then(async () => {
+          const final = end ?? { type: "end" as const, cancelled: controller.signal.aborted, durationMs: 0 };
+          await recorder?.finish(final.cancelled, final.durationMs);
+          send({ ...final, runId: recorder?.id });
+        })
         .finally(() => {
           try {
             streamController.close();
@@ -65,4 +93,4 @@ export async function POST(request: Request) {
       "X-Accel-Buffering": "no",
     },
   });
-}
+});
