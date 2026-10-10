@@ -10,6 +10,8 @@ export default defineConfig({
   test: {
     include: ["tests/integration/**/*.test.ts"],
     environment: "node",
+    // Rate limits have unit tests; these tests call the routes in quick succession.
+    env: { RATE_LIMIT_ENABLED: "false" },
     testTimeout: 60_000,
     hookTimeout: 60_000,
   },

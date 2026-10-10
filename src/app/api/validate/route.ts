@@ -1,4 +1,5 @@
 import { trySaveSingleRun, wantsSave } from "@/lib/history/store";
+import { BODY_LIMITS, bodyErrorResponse, readJsonLimited } from "@/lib/http/body";
 import { localOnly } from "@/lib/http/local-only";
 import { parseOptions } from "@/lib/validation/options";
 import { validateText, validateUrl } from "@/lib/validation/run";
@@ -17,9 +18,9 @@ function bad(message: string, status = 400) {
 export const POST = localOnly(async (request: Request) => {
   let body: Record<string, unknown>;
   try {
-    body = (await request.json()) as Record<string, unknown>;
-  } catch {
-    return bad("Request body must be JSON.");
+    body = (await readJsonLimited(request, BODY_LIMITS.validate)) as Record<string, unknown>;
+  } catch (err) {
+    return bodyErrorResponse(err) ?? bad("Request body must be JSON.");
   }
   if (!body || typeof body !== "object" || Array.isArray(body)) return bad("Request body must be a JSON object.");
 

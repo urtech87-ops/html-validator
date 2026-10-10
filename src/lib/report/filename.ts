@@ -19,6 +19,24 @@ export function reportFilename(format: ReportFormat, opts: { project?: string; t
   return `markuplens-${slug}-${opts.date}.${FORMAT_META[format].extension}`;
 }
 
+/**
+ * Headers for a report download. HTML reports also get a sandboxing CSP (the
+ * same policy as their <meta> one, plus `sandbox`), so even if a browser
+ * displayed one inline instead of downloading it, it couldn't run script or
+ * act as this origin.
+ */
+export function downloadHeaders(contentType: string, filename: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Content-Type": contentType,
+    "Content-Disposition": contentDisposition(filename),
+    "X-Content-Type-Options": "nosniff",
+  };
+  if (/^text\/html(;|$)/i.test(contentType)) {
+    headers["Content-Security-Policy"] = "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'";
+  }
+  return headers;
+}
+
 /** Content-Disposition with an ASCII fallback and an RFC 5987 UTF-8 name. */
 export function contentDisposition(filename: string): string {
   const ascii = filename.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");

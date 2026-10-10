@@ -1,6 +1,7 @@
 import { renderCompareExcel } from "@/lib/history/compare-excel";
 import { comparisonFilename, CompareError, loadComparison } from "@/lib/history/comparison";
 import { historyError, NO_STORE } from "@/lib/history/http";
+import { BODY_LIMITS, bodyErrorResponse, readJsonLimited } from "@/lib/http/body";
 import { localOnly } from "@/lib/http/local-only";
 import { contentDisposition } from "@/lib/report/filename";
 import { FORMAT_META } from "@/lib/report/types";
@@ -47,9 +48,9 @@ export const GET = localOnly(async (request: Request) => {
 export const POST = localOnly(async (request: Request) => {
   let body: Record<string, unknown>;
   try {
-    body = (await request.json()) as Record<string, unknown>;
-  } catch {
-    return Response.json({ error: "Request body must be JSON." }, { status: 400 });
+    body = (await readJsonLimited(request, BODY_LIMITS.small)) as Record<string, unknown>;
+  } catch (err) {
+    return bodyErrorResponse(err) ?? Response.json({ error: "Request body must be JSON." }, { status: 400 });
   }
   const format = body?.format === "xlsx" ? "xlsx" : body?.format === "json" ? "json" : undefined;
   if (!format) return Response.json({ error: "“format” must be \"json\" or \"xlsx\"." }, { status: 400 });

@@ -2,6 +2,7 @@ import { getConfig } from "@/lib/config";
 import { discoverSitemap } from "@/lib/bulk/sitemap";
 import { BlockedUrlError } from "@/lib/fetch/ssrf";
 import { USER_AGENTS, parseOptions } from "@/lib/validation/options";
+import { BODY_LIMITS, bodyErrorResponse, readJsonLimited } from "@/lib/http/body";
 import { localOnly } from "@/lib/http/local-only";
 
 /**
@@ -12,10 +13,11 @@ import { localOnly } from "@/lib/http/local-only";
 export const POST = localOnly(async (request: Request) => {
   let body: Record<string, unknown>;
   try {
-    body = (await request.json()) as Record<string, unknown>;
-  } catch {
-    return Response.json({ error: "Request body must be JSON." }, { status: 400 });
+    body = (await readJsonLimited(request, BODY_LIMITS.small)) as Record<string, unknown>;
+  } catch (err) {
+    return bodyErrorResponse(err) ?? Response.json({ error: "Request body must be JSON." }, { status: 400 });
   }
+  if (!body || typeof body !== "object") return Response.json({ error: "Request body must be a JSON object." }, { status: 400 });
   if (typeof body.url !== "string" || !body.url.trim()) return Response.json({ error: "“url” must be a non-empty string." }, { status: 400 });
   if (body.url.length > 2048) return Response.json({ error: "URL is too long (max 2048 characters)." }, { status: 400 });
 

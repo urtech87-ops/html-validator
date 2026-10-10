@@ -119,3 +119,59 @@ describe("upload checks", () => {
     expect(looksBinary(new Uint8Array([0x89, 0x50, 0x4e, 0x47]))).toBe("PNG image");
   });
 });
+
+describe("upload hardening", () => {
+  const bytes = (...b: number[]) => new Uint8Array([...b, ...new TextEncoder().encode("<!doctype html><title>x</title>")]);
+
+  it("refuses archives and binaries renamed to an accepted extension", () => {
+    const cases: Array<[string, Uint8Array]> = [
+      ["ZIP archive", bytes(0x50, 0x4b, 0x03, 0x04)],
+      ["ZIP archive", bytes(0x50, 0x4b, 0x05, 0x06)],
+      ["BZIP2 archive", bytes(0x42, 0x5a, 0x68, 0x39)],
+      ["XZ archive", bytes(0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00)],
+      ["Zstandard archive", bytes(0x28, 0xb5, 0x2f, 0xfd)],
+      ["Microsoft Office document", bytes(0xd0, 0xcf, 0x11, 0xe0)],
+      ["Java class file", bytes(0xca, 0xfe, 0xba, 0xbe)],
+      ["RIFF media file", bytes(0x52, 0x49, 0x46, 0x46)],
+      ["Windows executable", bytes(0x4d, 0x5a, 0x90)],
+      ["PDF document", new TextEncoder().encode("%PDF-1.7 <html>")],
+    ];
+    for (const [label, content] of cases) {
+      expect(checkUpload("page.html", "text/html", content.byteLength, content), label).toEqual({
+        ok: false,
+        error: `“page.html” looks like a ${label}, not a text file.`,
+      });
+    }
+    const tar = new Uint8Array(1024).fill(0x20);
+    tar.set(new TextEncoder().encode("ustar"), 257);
+    expect(looksBinary(tar)).toBe("TAR archive");
+    expect(looksBinary(new TextEncoder().encode("BZh is not a bzip2 file"))).toBeUndefined();
+  });
+
+  it("refuses NUL bytes in a non-UTF-16 file, accepts UTF-16 with a BOM", () => {
+    expect(checkUpload("a.css", "text/css", 6, new Uint8Array([0x61, 0x7b, 0x00, 0x7d, 0x0a, 0x0a])).ok).toBe(false);
+    const utf16 = new Uint8Array([0xff, 0xfe, 0x3c, 0x00, 0x70, 0x00, 0x3e, 0x00]);
+    expect(checkUpload("a.html", "text/html", utf16.byteLength, utf16)).toEqual({ ok: true, kind: "html" });
+  });
+
+  it("judges by the last extension: double extensions don't sneak archives in", () => {
+    expect(checkUpload("site.html.zip", "application/zip", 10).ok).toBe(false);
+    expect(checkUpload("site.zip.html", "text/html", 8, bytes(0x50, 0x4b, 0x03, 0x04)).ok).toBe(false);
+    expect(checkUpload("noextension", "text/html", 10).ok).toBe(false);
+    expect(checkUpload(".html", "text/html", 10, bytes()).ok).toBe(true);
+  });
+
+  it("accepts MIME parameters, refuses mismatched types", () => {
+    expect(checkUpload("a.html", "text/html; charset=utf-8", 10, bytes()).ok).toBe(true);
+    expect(checkUpload("a.html", "TEXT/HTML", 10, bytes()).ok).toBe(true);
+    for (const mime of ["application/zip", "application/x-msdownload", "image/png", "application/javascript", "text/javascript"]) {
+      expect(checkUpload("a.html", mime, 10, bytes()).ok, mime).toBe(false);
+    }
+  });
+
+  it("size limits: empty and over 5 MB are refused, exactly 5 MB is fine", () => {
+    expect(checkUpload("a.html", "text/html", 0).ok).toBe(false);
+    expect(checkUpload("a.html", "text/html", 5 * 1024 * 1024).ok).toBe(true);
+    expect(checkUpload("a.html", "text/html", 5 * 1024 * 1024 + 1).ok).toBe(false);
+  });
+});

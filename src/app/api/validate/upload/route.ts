@@ -1,5 +1,6 @@
 import { trySaveSingleRun, wantsSave } from "@/lib/history/store";
 import { MAX_SAVED_SOURCE_BYTES, type RerunInput } from "@/lib/history/types";
+import { BODY_LIMITS, bodyErrorResponse, readFormLimited } from "@/lib/http/body";
 import { localOnly } from "@/lib/http/local-only";
 import { parseOptions } from "@/lib/validation/options";
 import { validateUploads, type UploadedFile } from "@/lib/validation/run";
@@ -13,9 +14,9 @@ import { checkUpload, MAX_UPLOAD_FILES } from "@/lib/validation/upload";
 export const POST = localOnly(async (request: Request) => {
   let form: FormData;
   try {
-    form = await request.formData();
-  } catch {
-    return Response.json({ error: "Expected multipart/form-data with one or more “files”." }, { status: 400 });
+    form = await readFormLimited(request, BODY_LIMITS.upload);
+  } catch (err) {
+    return bodyErrorResponse(err) ?? Response.json({ error: "Expected multipart/form-data with one or more “files”." }, { status: 400 });
   }
 
   let options;

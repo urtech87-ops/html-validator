@@ -6,8 +6,11 @@
  * (run validations, read or delete history) from the user's browser.
  *
  * Pages are checked by src/proxy.ts; every API route handler is wrapped in
- * localOnly() (a unit test checks that none is missing).
+ * localOnly() (a unit test checks that none is missing), which also applies
+ * the rate limits.
  */
+
+import { clientAddress, rateLimiter, tiersFor, tooManyRequests } from "./rate-limit";
 
 const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
 
@@ -55,7 +58,16 @@ export function rejectNonLocal(request: Request, { checkOrigin }: { checkOrigin:
   return undefined;
 }
 
-/** Wrap an API route handler so non-local requests get 403 before it runs. */
+/**
+ * Wrap an API route handler: non-local requests get 403 and requests over the
+ * rate limit 429 (see rate-limit.ts) before it runs.
+ */
 export function localOnly<Ctx = unknown>(handler: (request: Request, context: Ctx) => Response | Promise<Response>) {
-  return async (request: Request, context: Ctx): Promise<Response> => rejectNonLocal(request, { checkOrigin: true }) ?? handler(request, context);
+  return async (request: Request, context: Ctx): Promise<Response> => {
+    const rejected = rejectNonLocal(request, { checkOrigin: true });
+    if (rejected) return rejected;
+    const limited = rateLimiter().check(clientAddress(request), tiersFor(request.method, new URL(request.url).pathname));
+    if (!limited.ok) return tooManyRequests(limited);
+    return handler(request, context);
+  };
 }
