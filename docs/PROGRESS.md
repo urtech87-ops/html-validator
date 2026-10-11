@@ -2,7 +2,7 @@
 
 Status as of **2026-10-11**. Specification: [docs/SPEC.md](SPEC.md). Setup details: [README.md](../README.md).
 
-Phases 1–6 are merged into `main` and pushed. **Phase 7 (`chore/hardening`) is complete on its branch and waits for the owner's "approved"** before it is merged and pushed.
+**Project status: v1.0.0 released.** All 7 phases are merged into `main` and pushed; the Phase 7 merge commit `be589db` is tagged **`v1.0.0`** ("MarkupLens v1.0.0: all 7 phases complete", pushed to origin).
 
 ## Phases
 
@@ -15,7 +15,7 @@ Phases 1–6 are merged into `main` and pushed. **Phase 7 (`chore/hardening`) is
 | 4 | `feat/bulk` | `602182c` | Sitemap discovery + URL-list bulk runs, server-side queue with streaming progress, cancel, site summary, most common issues |
 | 5 | `feat/reports` | `9eabe9b` | Report dialog, PDF (Playwright Chromium), Excel (5 sheets), HTML, JSON, CSV, branding + logo, Arabic/RTL support, Docker image with Noto Arabic fonts; `.claude/` excluded from git and the Docker build context |
 | 6 | `feat/history-api` | `aee14e6` | Prisma + SQLite history (every run, bulk runs progressively), retention, `/history` (search, filters, sort, paging, delete, re-run, compare), saved reports, run comparison (+ JSON / Excel export), public API + `/api-docs`, localhost-only guard, `db:backup`, Docker migrations on start |
-| 7 | `chore/hardening` | — (awaiting approval) | Connect-time SSRF check (DNS rebinding), tiered per-IP rate limits, request body caps, security headers, upload hardening, dependency audit fixes, Playwright e2e (56 tests, 1280/375 px × light/dark), Lighthouse script + fixes (accessibility 100), 375 px overflow fix, final README |
+| 7 | `chore/hardening` | `be589db` (tag `v1.0.0`) | Connect-time SSRF check (DNS rebinding), tiered per-IP rate limits, request body caps, security headers, upload hardening, dependency audit fixes, Playwright e2e (56 tests, 1280/375 px × light/dark), Lighthouse script + fixes (accessibility 100), 375 px overflow fix, final README |
 
 Branches are merged with `--no-ff`; nothing is merged into `main` or pushed without the owner's explicit "approved".
 
@@ -115,6 +115,7 @@ Branches are merged with `--no-ff`; nothing is merged into `main` or pushed with
 - Header: the wordmark hides below `sm` so four nav links (Validate, Bulk, History, API) fit at 375 px; `NavLinks` sits in `<Suspense>` (on dynamic routes `usePathname()` is runtime data under Cache Components).
 
 ### Phase 7 — hardening
+- Merged as **`be589db`** (`--no-ff`) and tagged **`v1.0.0`** after the owner's test on 2026-10-11: both Excel files opened in Excel without repair warnings (dropdowns and colours work), XAMPP localhost validation, a client URL, an Arabic page, a 10-page bulk run + report without hitting rate limits, an HTML report download, `/history` at phone width. The owner accepted mobile Lighthouse 79–80 on three pages and the remaining `npm audit` findings as known limitations. The `markuplens-cleancheck-app` image and the clean-clone folder were removed; the worktree and the `claude/*` helper branches were removed after the merge.
 - Built in the git worktree `.claude/worktrees/phase-7-hardening-review-836cb4` on branch `chore/hardening` (from `main` at `a908eb9`; the worktree had been created on the older `38925e1`, so the branch was made from `main` explicitly).
 - **DNS rebinding:** `safeFetch` uses `undici` 7.30.0 (pinned, in `serverExternalPackages`) with an `Agent` whose `connect.lookup` (`guardedLookup` in `ssrf.ts`) resolves the host and applies the same rules (`assertAddressesAllowed`) to the addresses actually connected to. The pre-check stays for clear error messages. One keep-alive pool per `ALLOW_PRIVATE_URLS` value. IP-literal URLs don't use DNS, so the pre-check covers them. Tested with real sockets: pre-check resolver says public, connect lookup says 127.0.0.1 / 169.254.169.254 / ::ffff:169.254.169.254 / 100.100.100.200 / 0.0.0.0 → refused.
 - **Rate limits** (owner's tiers; all `RATE_LIMIT_*`, `0` = unlimited, `RATE_LIMIT_ENABLED=false` = off): work 30/min per client (validate, upload, sitemap, report, re-run, compare GET/POST, bulk, and any new route by default); bulk +5/min and **at most 2 bulk runs streaming at once** (slot released when the stream ends, cancelled or not); report +10/min; other `/api/history*` 120/min; **global 240/min** over all clients; `GET /api/health` exempt. Sliding 60 s window, in memory (one process), applied in `localOnly()` *after* the Host/Origin check (refused foreign requests use no budget); refused requests don't count. Client = first `x-forwarded-for` entry (Next.js sets it from the socket only when absent, so it can be faked → the global cap), `::ffff:` stripped; at most 10,000 tracked clients. 429 JSON `{ error }` + `Retry-After`; the UI shows the message. Unit and integration test configs set `RATE_LIMIT_ENABLED=false`; the limits have their own unit, e2e and Docker tests.
@@ -233,3 +234,17 @@ Docker check (Phase 6, after the merge): `npm install` + `docker compose up -d -
 Docker check (Phase 7, clean clone): the `markuplens` stack was stopped (`docker compose stop`, history baseline 6 runs / 140,912 bytes); `git clone --branch chore/hardening` into `D:\markuplens-cleancheck`, only `cp .env.example .env`, then `docker compose -p markuplens-cleancheck up --build -d`: fresh volume, `prisma migrate deploy` applied `20261010000000_init` (with the `mysql2` / `deepmerge-ts` overrides), app healthy, vnu online, empty history, home page 200, image 1.76 GB; `npm run test:docker` against it 9 / 9. Its containers, network and volume were then removed (`down -v`, pre-approved). Removing the clone folder was blocked by Claude Code's safety check and is left to the owner; the `markuplens-cleancheck-app` image (1.76 GB) is left too (image removal wasn't part of the approval).
 
 Docker check (Phase 7, `markuplens` stack): `docker compose up --build -d` from the worktree; "No pending migrations to apply"; app healthy; history **6 runs / 140,912 bytes, unchanged**; `npm run test:docker` 9 / 9 (adds 2 small test runs → 8).
+
+### Final results (v1.0.0)
+
+| Check | Result |
+|---|---|
+| `npm run lint` / `npm run typecheck` | clean / clean |
+| `npm test` | 403 / 403 |
+| `npm run test:integration` | 18 / 18 |
+| `npm run test:e2e` | 56 / 56 |
+| `npm run test:docker` | 9 / 9 (clean clone and the `markuplens` stack) |
+| `npm run build` | ok |
+| `docker compose up --build` | healthy; clean clone with only `.env` from `.env.example` works |
+| Lighthouse | accessibility 100 everywhere; performance desktop 99–100, mobile 79–89 (three pages 79–80, accepted) |
+| `npm audit` / `--omit=dev` | 11 (9 high dev-only `braces`, 2 low dompurify in Monaco) / 2 low — accepted |
