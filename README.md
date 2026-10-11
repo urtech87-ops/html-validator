@@ -570,5 +570,5 @@ Windows went to sleep during the run. Keep the machine awake while the tests run
 - **Excel and WebP logos:** a WebP logo appears in PDF/HTML reports only.
 - **Mobile Lighthouse performance** is below 85 on some pages under Lighthouse's simulated slow 4G and 4× CPU
   slowdown; see [docs/PROGRESS.md](docs/PROGRESS.md) for the scores and what limits them. Desktop scores are
-  98–100.
+  99–100.
 - Leaving the bulk page cancels a running bulk run (by design: the run streams to the open page).

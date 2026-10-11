@@ -155,7 +155,7 @@ C: filled up on 2026-10-09 and corrupted Docker Desktop's storage (read-only fil
 
 ## Known issues and notes
 
-- **Mobile Lighthouse performance** is below 85 on some pages (see "How to test"); desktop is 98–100 and accessibility 100 everywhere.
+- **Mobile Lighthouse performance** is below 85 on some pages (see "How to test"); desktop is 99–100 and accessibility 100 everywhere.
 - **Rate limits** are in memory and per process (reset on restart); `x-forwarded-for` can be faked, bounded by the global cap.
 - **vnu CSS checker** reports internal errors such as `Cannot invoke "org.w3c.css.values.CssValue.getType()"` on some modern CSS (custom properties). The guide explains them; they can be hidden with a message filter.
 - Four rare vnu message kinds have no guide entry (about 2 % of distinct messages on a sample of real sites).
