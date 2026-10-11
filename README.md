@@ -568,7 +568,12 @@ Windows went to sleep during the run. Keep the machine awake while the tests run
 - **PDF copy/paste of Arabic:** Chromium writes shaped Arabic in visual order, so copying or extracting Arabic
   text from a PDF can give reversed words; the PDF *displays* correctly.
 - **Excel and WebP logos:** a WebP logo appears in PDF/HTML reports only.
-- **Mobile Lighthouse performance** is below 85 on some pages under Lighthouse's simulated slow 4G and 4× CPU
-  slowdown; see [docs/PROGRESS.md](docs/PROGRESS.md) for the scores and what limits them. Desktop scores are
-  99–100.
+- **Mobile Lighthouse performance (accepted):** 79–80 on three pages (Validate, History, a saved run) under
+  Lighthouse's simulated slow 4G and 4× CPU slowdown, against the spec's 85; the other pages reach 85–89.
+  Accepted for v1 because MarkupLens is a local desktop tool: desktop performance is 99–100 and accessibility
+  100 on every page. See [docs/PROGRESS.md](docs/PROGRESS.md) for the scores and what limits them.
+- **npm audit (accepted):** 11 findings remain. 9 high are the `braces` chain in development tools only (no fixed
+  `braces` release exists; not in the production image); 2 low are DOMPurify advisories in the copy bundled
+  inside `monaco-editor` 0.57.0 (the latest), which need a DOMPurify mode Monaco never uses. Details in
+  [docs/PROGRESS.md](docs/PROGRESS.md#dependencies-npm-audit).
 - Leaving the bulk page cancels a running bulk run (by design: the run streams to the open page).

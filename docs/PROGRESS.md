@@ -155,7 +155,8 @@ C: filled up on 2026-10-09 and corrupted Docker Desktop's storage (read-only fil
 
 ## Known issues and notes
 
-- **Mobile Lighthouse performance** is below 85 on some pages (see "How to test"); desktop is 99–100 and accessibility 100 everywhere.
+- **Known limitation, accepted by the owner:** mobile Lighthouse performance is 79–80 on three pages (Validate, History, saved run; target 85) under the simulated slow 4G / 4× CPU preset; desktop is 99–100 and accessibility 100 everywhere (see "How to test"). Accepted for v1 as a local desktop tool.
+- **Known limitation, accepted by the owner:** the remaining `npm audit` findings — 9 high (`braces` chain, dev tools only, no fixed release) and 2 low (DOMPurify inside `monaco-editor` 0.57.0, unreachable `IN_PLACE` mode) — as documented in "Dependencies (npm audit)".
 - **Rate limits** are in memory and per process (reset on restart); `x-forwarded-for` can be faked, bounded by the global cap.
 - **vnu CSS checker** reports internal errors such as `Cannot invoke "org.w3c.css.values.CssValue.getType()"` on some modern CSS (custom properties). The guide explains them; they can be hidden with a message filter.
 - Four rare vnu message kinds have no guide entry (about 2 % of distinct messages on a sample of real sites).
