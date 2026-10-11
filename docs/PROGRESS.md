@@ -141,7 +141,7 @@ Phase 7 changes: `shadcn` moved to devDependencies (only `@import "shadcn/tailwi
 | `deepmerge-ts` < 8 via `@prisma/config` | high | yes (Prisma CLI) | **Fixed** by override (`8.0.2`). |
 | `dompurify` ≤ 3.4.15 via `monaco-editor@0.57.0` (2 advisories, both need `IN_PLACE`) | low | yes (browser) | **Accepted.** Monaco's `min/` build, which the app serves, bundles its own DOMPurify copy, so an override would only silence the audit; Monaco never calls it with `IN_PLACE` (checked in the bundle); 0.57.0 is the latest Monaco. |
 
-Totals: before Phase 7 **17** (2 low, 2 moderate, 13 high; `--omit=dev` 15). After: ⟨pending⟩.
+Totals: before Phase 7 **17** (2 low, 2 moderate, 13 high; `--omit=dev` 15). After Phase 7: **11** (2 low dompurify/monaco, 9 high braces chain, dev-only); `npm audit --omit=dev`: **2 low** (dompurify/monaco). Checked in the built image: `braces`, `micromatch`, `fast-glob`, `shadcn` absent; `undici` 7.30.0, `uuid` 11.1.1, `mysql2` 3.24.4, `deepmerge-ts` 8.0.2 present.
 
 ## Machine rules (C: drive is nearly full)
 
@@ -194,14 +194,16 @@ docker compose up --build  # http://127.0.0.1:3000
 
 ## How to test
 
-| Command | What it runs | Last result (Phase 6) |
+| Command | What it runs | Last result (Phase 7) |
 |---|---|---|
-| `npm run lint` | ESLint | clean |
+| `npm run lint` | ESLint (`test-results/` ignored: the Playwright report bundles its own JS) | clean |
 | `npm run typecheck` | `prisma generate` + `next typegen` + `tsc` | clean |
-| `npm test` | Vitest unit tests (incl. report model, Issue IDs, CSV, Excel read-back, HTML, logo, dialog; **Phase 6:** localhost guard + "every API route wrapped" check, compare logic + comparison Excel read-back, history store / retention / compaction / report API against throwaway SQLite databases) | 353 / 353 |
+| `npm test` | Vitest unit tests (incl. report model, Issue IDs, CSV, Excel read-back, HTML, logo, dialog; **Phase 6:** localhost guard + "every API route wrapped" check, compare logic + comparison Excel read-back, history store / retention / compaction / report API against throwaway SQLite databases; **Phase 7:** connect-time SSRF check with real sockets, rate limits, body caps, upload hardening, no HTML sinks) | 403 / 403 |
 | `npm run test:integration` | Fixtures, pipeline, structure, a 20-page bulk run + cancel + its Excel and PDF, local Arabic PDF; **Phase 6:** validate → save → compare, upload → re-run, report of a saved run, saved bulk run + comparison with the next run, cancelled bulk run saved (needs vnu and the local Chromium shell) | 18 / 18 |
-| `npm run test:docker` | Arabic PDF + Excel inside the container; **Phase 6:** runs and reports saved through the API (`X-Report-Id`, re-download, files on the volume), comparison, Host/Origin guard + healthcheck, failed migration stops the container (needs `docker compose up -d --build`) | 5 / 5 |
+| `npm run test:e2e` | **Phase 7:** build + Playwright, 14 flows × 4 projects (1280 / 375 px × light / dark) against `next start` on 127.0.0.1:3100 with a throwaway history (needs vnu and the Chromium shell) | 56 / 56 (three full runs; one other full run had a single `net::ERR_NO_BUFFER_SPACE` page load — Windows socket buffers, right after the Lighthouse runs — and passed on re-run) |
+| `npm run test:docker` | Arabic PDF + Excel inside the container; **Phase 6:** runs and reports saved through the API (`X-Report-Id`, re-download, files on the volume), comparison, Host/Origin guard + healthcheck, failed migration stops the container; **Phase 7:** guarded URL fetch in the image, 429, 413, security headers (needs `docker compose up -d --build`) | 9 / 9 (clean clone and the `markuplens` stack) |
 | `npm run build` | Production build | ok |
+| `npm run lighthouse` | **Phase 7:** Lighthouse, 6 pages × mobile / desktop, median of 3 | see below |
 | `npm run db:backup` | Backup of `./data` into `backups/` | ok |
 | `npm run fixtures:update` | Re-record fixture expectations from the pinned vnu — only after changing `VNU_IMAGE` | — |
 
@@ -212,3 +214,21 @@ Docker check (Phase 5): `docker compose up --build` from the worktree, then agai
 Docker check (Phase 6): `docker compose up -d --build` from the worktree (project `markuplens`, volume `markuplens_markuplens-data`); the entrypoint applied `20261010000000_init` and the app became healthy; image 1.76 GB. Through `127.0.0.1:3000`: URL validation of the XAMPP dashboard saved ("Saved to history" link), saved run page, server-side re-run, "Compare with previous run" (10 unchanged). Volume backup / restore with `tar` inside the app image verified (restored history served again).
 
 Docker check (Phase 6, after the merge): `npm install` + `docker compose up -d --build` from the main folder on `main` (`aee14e6`); the entrypoint ran `prisma migrate deploy` ("No pending migrations to apply" — the volume already had `20261010000000_init`), the app became healthy, and the existing history (6 runs) was kept on the `markuplens_markuplens-data` volume.
+
+### Lighthouse (Phase 7, final build, median of 3 runs; range of the 3 performance scores in brackets)
+
+| Page | Mobile perf | Mobile LCP / TBT | Desktop perf | Accessibility (mobile / desktop) | Best practices |
+|---|---|---|---|---|---|
+| Validate (home) `/` | **80** (77–91) | 3.6 s / 390 ms | 100 | 100 / 100 | 100 |
+| Bulk `/bulk` | **85** (84–87) | 3.3 s / 310 ms | 100 | 100 / 100 | 100 |
+| History `/history` | **80** (77–92) | 4.1 s / 280 ms | 100 | 100 / 100 | 100 |
+| Saved run with results `/history/<id>` | **79** (71–84) | 3.7 s / 380 ms | 99 | 100 / 100 | 100 |
+| Compare `/history/compare` | **86** (78–88) | 3.2 s / 320 ms | 100 | 100 / 100 | 100 |
+| API docs `/api-docs` | **89** (75–90) | 2.9 s / 290 ms | 100 | 100 / 100 | 100 |
+
+- **Accessibility ≥ 95: met everywhere (100).** Before the fixes: saved run 97 and compare 92 (colour contrast of red on its tint; a dangling `aria-controls`).
+- **Performance ≥ 85: met on desktop (99–100) and on 3 of 6 pages on mobile.** Home (80), History (80) and the saved run (79) stay below 85 on Lighthouse's mobile preset (simulated slow 4G, 4× CPU slowdown). CLS is 0 everywhere; FCP ≈ 1.1 s. What limits it: LCP is the server-rendered intro text, but in Lighthouse's simulation it waits for the page's JavaScript (React + Next.js runtime ≈ 70 KB gz for `react-dom` alone, ~250 KB gz in total) to download over slow 4G and hydrate at 4× slower CPU; TBT is mostly that hydration. Fixed: results view and report dialog now load on demand (≈ 116 KB raw off Validate and Bulk). Not done, because it would remove features or not be a real improvement: dropping client-side interactivity, the theme toggle or Radix components; tuning for the simulator. Run-to-run spread on this machine is large (e.g. home 77–91), which is why the median of 3 is reported.
+
+Docker check (Phase 7, clean clone): the `markuplens` stack was stopped (`docker compose stop`, history baseline 6 runs / 140,912 bytes); `git clone --branch chore/hardening` into `D:\markuplens-cleancheck`, only `cp .env.example .env`, then `docker compose -p markuplens-cleancheck up --build -d`: fresh volume, `prisma migrate deploy` applied `20261010000000_init` (with the `mysql2` / `deepmerge-ts` overrides), app healthy, vnu online, empty history, home page 200, image 1.76 GB; `npm run test:docker` against it 9 / 9. Its containers, network and volume were then removed (`down -v`, pre-approved). Removing the clone folder was blocked by Claude Code's safety check and is left to the owner; the `markuplens-cleancheck-app` image (1.76 GB) is left too (image removal wasn't part of the approval).
+
+Docker check (Phase 7, `markuplens` stack): `docker compose up --build -d` from the worktree; "No pending migrations to apply"; app healthy; history **6 runs / 140,912 bytes, unchanged**; `npm run test:docker` 9 / 9 (adds 2 small test runs → 8).
