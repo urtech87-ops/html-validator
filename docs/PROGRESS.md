@@ -1,8 +1,8 @@
 # MarkupLens — progress log
 
-Status as of **2026-10-10**. Specification: [docs/SPEC.md](SPEC.md). Setup details: [README.md](../README.md).
+Status as of **2026-10-11**. Specification: [docs/SPEC.md](SPEC.md). Setup details: [README.md](../README.md).
 
-Phases 1–6 of 7 are complete, merged into `main` and pushed. **Next: Phase 7 (`chore/hardening`)**, to be started in a new session.
+Phases 1–6 are merged into `main` and pushed. **Phase 7 (`chore/hardening`) is complete on its branch and waits for the owner's "approved"** before it is merged and pushed.
 
 ## Phases
 
@@ -15,7 +15,7 @@ Phases 1–6 of 7 are complete, merged into `main` and pushed. **Next: Phase 7 (
 | 4 | `feat/bulk` | `602182c` | Sitemap discovery + URL-list bulk runs, server-side queue with streaming progress, cancel, site summary, most common issues |
 | 5 | `feat/reports` | `9eabe9b` | Report dialog, PDF (Playwright Chromium), Excel (5 sheets), HTML, JSON, CSV, branding + logo, Arabic/RTL support, Docker image with Noto Arabic fonts; `.claude/` excluded from git and the Docker build context |
 | 6 | `feat/history-api` | `aee14e6` | Prisma + SQLite history (every run, bulk runs progressively), retention, `/history` (search, filters, sort, paging, delete, re-run, compare), saved reports, run comparison (+ JSON / Excel export), public API + `/api-docs`, localhost-only guard, `db:backup`, Docker migrations on start |
-| 7 | `chore/hardening` | — | *Not started* — SSRF hardening, rate limiting, size limits, e2e tests, README |
+| 7 | `chore/hardening` | — (awaiting approval) | Connect-time SSRF check (DNS rebinding), tiered per-IP rate limits, request body caps, security headers, upload hardening, dependency audit fixes, Playwright e2e (56 tests, 1280/375 px × light/dark), Lighthouse script + fixes (accessibility 100), 375 px overflow fix, final README |
 
 Branches are merged with `--no-ff`; nothing is merged into `main` or pushed without the owner's explicit "approved".
 
@@ -114,6 +114,35 @@ Branches are merged with `--no-ff`; nothing is merged into `main` or pushed with
 - **Backup / restore:** `npm run db:backup` uses SQLite's online backup (safe while the app runs) + copies `data/reports` into `backups/<local date_time>/` (git- and docker-ignored); restore = stop `npm run dev`, copy `markuplens.db` + `reports/` back into `data/`, delete any `-wal` / `-shm`. Docker volume: stop the app, `docker compose run --rm --no-deps -v ./backups:/backup --entrypoint sh app -c 'tar czf …'` with the app image itself (no extra image pulled), start it again; the archive name uses the container clock (UTC). Restore checks the archive with `tar tzf` **before** `find /app/data -mindepth 1 -delete` and `tar xzf`. **In Git Bash run `export MSYS_NO_PATHCONV=1` first**, otherwise `/backup` is rewritten to a Windows path and the archive isn't written. Exact commands are in the README ("Backing up history").
 - Header: the wordmark hides below `sm` so four nav links (Validate, Bulk, History, API) fit at 375 px; `NavLinks` sits in `<Suspense>` (on dynamic routes `usePathname()` is runtime data under Cache Components).
 
+### Phase 7 — hardening
+- Built in the git worktree `.claude/worktrees/phase-7-hardening-review-836cb4` on branch `chore/hardening` (from `main` at `a908eb9`; the worktree had been created on the older `38925e1`, so the branch was made from `main` explicitly).
+- **DNS rebinding:** `safeFetch` uses `undici` 7.30.0 (pinned, in `serverExternalPackages`) with an `Agent` whose `connect.lookup` (`guardedLookup` in `ssrf.ts`) resolves the host and applies the same rules (`assertAddressesAllowed`) to the addresses actually connected to. The pre-check stays for clear error messages. One keep-alive pool per `ALLOW_PRIVATE_URLS` value. IP-literal URLs don't use DNS, so the pre-check covers them. Tested with real sockets: pre-check resolver says public, connect lookup says 127.0.0.1 / 169.254.169.254 / ::ffff:169.254.169.254 / 100.100.100.200 / 0.0.0.0 → refused.
+- **Rate limits** (owner's tiers; all `RATE_LIMIT_*`, `0` = unlimited, `RATE_LIMIT_ENABLED=false` = off): work 30/min per client (validate, upload, sitemap, report, re-run, compare GET/POST, bulk, and any new route by default); bulk +5/min and **at most 2 bulk runs streaming at once** (slot released when the stream ends, cancelled or not); report +10/min; other `/api/history*` 120/min; **global 240/min** over all clients; `GET /api/health` exempt. Sliding 60 s window, in memory (one process), applied in `localOnly()` *after* the Host/Origin check (refused foreign requests use no budget); refused requests don't count. Client = first `x-forwarded-for` entry (Next.js sets it from the socket only when absent, so it can be faked → the global cap), `::ffff:` stripped; at most 10,000 tracked clients. 429 JSON `{ error }` + `Retry-After`; the UI shows the message. Unit and integration test configs set `RATE_LIMIT_ENABLED=false`; the limits have their own unit, e2e and Docker tests.
+- **Body caps** (`src/lib/http/body.ts`; a declared `Content-Length` over the cap is refused up front, chunked bodies are stopped at the cap; 413): validate 12 MB, upload 101 MB (parsed with `new Response(bytes).formData()` after the capped read), bulk 2 MB, sitemap/compare 64 KB, history delete 256 KB, report 60 MB (a chunked report request used to be read in full before the check).
+- **Headers:** every response `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`; pages (not `/api`) `Content-Security-Policy: frame-ancestors 'none'` — a config-level CSP on `/api` *replaced* the routes' own CSP (found by e2e). HTML report downloads (new and saved) get `sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'; frame-ancestors 'none'` via `downloadHeaders()`.
+- **Uploads:** MIME parameters accepted (`text/html; charset=utf-8`); added signatures: ZIP (empty/spanned), BZIP2 (`BZh` + digit only), XZ, Zstandard, OLE/Office, Java class, RIFF, TAR (`ustar` at 257).
+- **No HTML from user content:** audited — only `theme-script.tsx` uses `dangerouslySetInnerHTML` (a constant); a unit test fails on any other use or DOM HTML sink; the e2e XSS probe validates a page with `<script>`, `onerror`, `<svg onload>`, `javascript:` and `srcdoc` and checks every tab and the HTML report.
+- **Layout bug found by e2e:** at 375 px `/history` was 885 px wide: `sr-only` text and Radix's hidden checkbox inputs are `position: absolute` and escaped the unpositioned `overflow-x-auto` wrapper. All horizontal scroll containers are now `relative`.
+- **Accessibility fixes from Lighthouse:** light-mode `--destructive` is Tailwind red-700 (`oklch(0.505 0.213 27.518)`) instead of red-600 — red text on its own 10 % tint was 3.95–4.09:1; the compare page's filter tabs now control a real `TabsContent` (dangling `aria-controls`).
+- **Performance:** the results view and report dialog load on demand on Validate and Bulk (`src/components/results/lazy.tsx`, preloaded when a run starts; the results heading still gets focus). Not preloading Geist Mono was tried and reverted (CLS 0.078 on `/api-docs`).
+- **E2E:** `@playwright/test` 1.63.0 (same browser revision as `playwright-core`: the headless shell in `D:\ms-playwright`). `npm run test:e2e` = build + `playwright test`; server `scripts/e2e-server.mjs` = `next start` on 127.0.0.1:3100 with `DATA_DIR=test-results/e2e/data` (recreated each run; never `./data` or the volume), global cap and concurrent-bulk limit off, per-client limits at their defaults (each test sends its own `x-forwarded-for`); fixture site `tests/e2e/site/server.mjs` on 127.0.0.1:3199. Four projects (desktop 1280 / phone 375 × light / dark); every test checks the theme class and that there is no horizontal scroll. `next start` prints a harmless warning about `output: standalone`.
+- **Lighthouse:** `lighthouse` 13.5.0 (pinned dev dependency); `npm run lighthouse` = `scripts/lighthouse.mjs`: same throwaway server, seeds two runs, 6 pages × mobile + desktop presets × 3 runs, median reported (Lighthouse's own advice for its run-to-run variance; every run in `runs.json`), installed Chrome via chrome-launcher, temp profile in `test-results/lighthouse/tmp`, a crashed Chrome run retried once.
+- **Windows sleep:** a first e2e run "took" 4.3 h and failed with `net::ERR_NETWORK_IO_SUSPENDED` because the machine slept; keep it awake during long runs.
+
+## Dependencies (npm audit)
+
+Phase 7 changes: `shadcn` moved to devDependencies (only `@import "shadcn/tailwind.css"` is used, compiled at build time); npm `overrides`: `exceljs` → `uuid@11.1.1`, `mysql2@3.24.4`, `deepmerge-ts@8.0.2` (kept because unit, integration, e2e and Docker tests — including `prisma migrate deploy` on container start — pass). Never `npm audit fix --force`.
+
+| Finding | Severity | In the production image? | Status |
+|---|---|---|---|
+| `braces` ≤ 3.0.3 via `micromatch` → `fast-glob` in `eslint-config-next` and the shadcn CLI (9 packages flagged) | high | **No** (dev tools only now that `shadcn` is a devDependency; not in the standalone output) | **Accepted.** No fixed `braces` release exists (3.0.3 is the latest). |
+| `uuid` < 11.1.1 via `exceljs@4.4.0` | moderate | yes | **Fixed** by override (`uuid@11.1.1`); exceljs 4.4.0 is the latest release. |
+| `mysql2` ≤ 3.23 via `prisma` | high | yes (Prisma CLI for `migrate deploy`; never connects to MySQL) | **Fixed** by override (`3.24.4`). |
+| `deepmerge-ts` < 8 via `@prisma/config` | high | yes (Prisma CLI) | **Fixed** by override (`8.0.2`). |
+| `dompurify` ≤ 3.4.15 via `monaco-editor@0.57.0` (2 advisories, both need `IN_PLACE`) | low | yes (browser) | **Accepted.** Monaco's `min/` build, which the app serves, bundles its own DOMPurify copy, so an override would only silence the audit; Monaco never calls it with `IN_PLACE` (checked in the bundle); 0.57.0 is the latest Monaco. |
+
+Totals: before Phase 7 **17** (2 low, 2 moderate, 13 high; `--omit=dev` 15). After Phase 7: **11** (2 low dompurify/monaco, 9 high braces chain, dev-only); `npm audit --omit=dev`: **2 low** (dompurify/monaco). Checked in the built image: `braces`, `micromatch`, `fast-glob`, `shadcn` absent; `undici` 7.30.0, `uuid` 11.1.1, `mysql2` 3.24.4, `deepmerge-ts` 8.0.2 present.
+
 ## Machine rules (C: drive is nearly full)
 
 C: filled up on 2026-10-09 and corrupted Docker Desktop's storage (read-only file system, I/O errors, an app image with a 0-byte `package.json`). Since then:
@@ -126,9 +155,9 @@ C: filled up on 2026-10-09 and corrupted Docker Desktop's storage (read-only fil
 
 ## Known issues and notes
 
-- **DNS rebinding:** the SSRF check resolves and validates the host, but `fetch` resolves again when connecting. Fix in Phase 7 (validate the address at connect time). Docker Desktop's DNS and many routers refuse link-local answers, which limits this locally.
-- **No rate limiting yet** on `/api/*` (Phase 7).
-- **No Playwright e2e tests yet** (Phase 7); Lighthouse (Accessibility ≥ 95, Performance ≥ 85) not measured yet.
+- **Known limitation, accepted by the owner:** mobile Lighthouse performance is 79–80 on three pages (Validate, History, saved run; target 85) under the simulated slow 4G / 4× CPU preset; desktop is 99–100 and accessibility 100 everywhere (see "How to test"). Accepted for v1 as a local desktop tool.
+- **Known limitation, accepted by the owner:** the remaining `npm audit` findings — 9 high (`braces` chain, dev tools only, no fixed release) and 2 low (DOMPurify inside `monaco-editor` 0.57.0, unreachable `IN_PLACE` mode) — as documented in "Dependencies (npm audit)".
+- **Rate limits** are in memory and per process (reset on restart); `x-forwarded-for` can be faked, bounded by the global cap.
 - **vnu CSS checker** reports internal errors such as `Cannot invoke "org.w3c.css.values.CssValue.getType()"` on some modern CSS (custom properties). The guide explains them; they can be hidden with a message filter.
 - Four rare vnu message kinds have no guide entry (about 2 % of distinct messages on a sample of real sites).
 - Sitemap listing stops at 50,000 URLs; very large sites may be truncated (sitemap order).
@@ -139,23 +168,15 @@ C: filled up on 2026-10-09 and corrupted Docker Desktop's storage (read-only fil
 - If the app container crash-loops after disk problems (e.g. `Invalid package config /app/package.json`), rebuild without cache: `docker compose build --no-cache app`.
 - When testing the API from Git Bash, pass non-ASCII (e.g. Arabic) request bodies from a UTF-8 file (`--data-binary @file.json`); command-line arguments get mangled by the console code page.
 - `C:\Users\HP\AppData\Local\ms-playwright` (≈ 1.6 GB) belongs to the Playwright browser tool used for testing, not to this project.
-- The app image is ≈ 1.4 GB since Phase 5 (Chromium headless shell + Noto fonts).
+- The app image is ≈ 1.76 GB since Phase 6 (Chromium headless shell + Noto fonts + Prisma CLI).
 - Chromium writes shaped Arabic into PDFs in visual order (some ligatures stay logical), so copy/paste or text extraction from a PDF can show Arabic words reversed; the PDF *displays* correctly. The tests compare Arabic as contiguous letter runs for this reason.
 
-## Phase 7 backlog (`chore/hardening`)
+## Backlog after v1
 
-- **npm audit, added in Phase 6 (Prisma CLI):** `deepmerge-ts < 8` (high, stack exhaustion merging recursive objects) via `@prisma/config`, and `mysql2 ≤ 3.23` (high: auth downgrade, decompression bomb) via `prisma`. Both are only used by the Prisma CLI, which here only runs `migrate deploy` against the local SQLite file from a trusted config (no MySQL connection is ever made). The fix npm offers is a downgrade to Prisma 6 — not taken. Revisit with a Prisma 7.x/8 release. Total now 15 (2 low, 2 moderate, 11 high).
-- Prisma prints an "update available 7.10.0 → 8.0.0-rc" box on CLI runs; harmless (`CHECKPOINT_DISABLE=1` silences it in Docker).
-
-- **npm audit, added in Phase 5 (runtime dependencies):**
-  - 1 moderate: `exceljs@4.4.0` → `uuid@8` ("missing buffer bounds check in v3/v5/v6 when `buf` is provided"). exceljs only calls `uuid.v4()` without a buffer, so it isn't reachable. Revisit when exceljs updates `uuid`.
-  - 2 low: `monaco-editor` → `dompurify` (IN_PLACE sanitising advisories). Newly published advisories, already present on `main` before Phase 5; Monaco only shows code as text. Revisit with a Monaco update.
-- **npm audit:** 9 high-severity, dev-only findings, all from an outdated `braces` (GHSA-vfj7-8cjw-p6xm) via `micromatch` → `fast-glob` in `eslint-config-next` / `@next/eslint-plugin-next` and the shadcn CLI (`shadcn`, `@shadcn/registry`, `ts-morph`, `@ts-morph/common`). Not used at runtime. Do **not** run `npm audit fix --force`; revisit when upstream ships fixes.
-- DNS-rebinding-safe fetching (check the IP at connect time).
-- Rate limit `/api/*` per IP (≈ 30 req/min; one bulk run is a single request).
-- SSRF, size-limit and upload hardening with more tests.
-- Playwright e2e tests; Lighthouse targets.
-- README: setup + deployment.
+- A Monaco release without the vulnerable DOMPurify copy (re-run `npm audit`).
+- `braces`: drop the accepted finding once `eslint-config-next` / shadcn ship a fixed `fast-glob` chain.
+- Prisma 8 (a release candidate today): remove the `mysql2` / `deepmerge-ts` overrides if it no longer needs them.
+- Mobile performance: the remaining cost is mostly React/Next.js hydration under Lighthouse's 4× CPU slowdown.
 
 ## How to run
 
@@ -174,14 +195,16 @@ docker compose up --build  # http://127.0.0.1:3000
 
 ## How to test
 
-| Command | What it runs | Last result (Phase 6) |
+| Command | What it runs | Last result (Phase 7) |
 |---|---|---|
-| `npm run lint` | ESLint | clean |
+| `npm run lint` | ESLint (`test-results/` ignored: the Playwright report bundles its own JS) | clean |
 | `npm run typecheck` | `prisma generate` + `next typegen` + `tsc` | clean |
-| `npm test` | Vitest unit tests (incl. report model, Issue IDs, CSV, Excel read-back, HTML, logo, dialog; **Phase 6:** localhost guard + "every API route wrapped" check, compare logic + comparison Excel read-back, history store / retention / compaction / report API against throwaway SQLite databases) | 353 / 353 |
+| `npm test` | Vitest unit tests (incl. report model, Issue IDs, CSV, Excel read-back, HTML, logo, dialog; **Phase 6:** localhost guard + "every API route wrapped" check, compare logic + comparison Excel read-back, history store / retention / compaction / report API against throwaway SQLite databases; **Phase 7:** connect-time SSRF check with real sockets, rate limits, body caps, upload hardening, no HTML sinks) | 403 / 403 |
 | `npm run test:integration` | Fixtures, pipeline, structure, a 20-page bulk run + cancel + its Excel and PDF, local Arabic PDF; **Phase 6:** validate → save → compare, upload → re-run, report of a saved run, saved bulk run + comparison with the next run, cancelled bulk run saved (needs vnu and the local Chromium shell) | 18 / 18 |
-| `npm run test:docker` | Arabic PDF + Excel inside the container; **Phase 6:** runs and reports saved through the API (`X-Report-Id`, re-download, files on the volume), comparison, Host/Origin guard + healthcheck, failed migration stops the container (needs `docker compose up -d --build`) | 5 / 5 |
+| `npm run test:e2e` | **Phase 7:** build + Playwright, 14 flows × 4 projects (1280 / 375 px × light / dark) against `next start` on 127.0.0.1:3100 with a throwaway history (needs vnu and the Chromium shell) | 56 / 56 (three full runs; one other full run had a single `net::ERR_NO_BUFFER_SPACE` page load — Windows socket buffers, right after the Lighthouse runs — and passed on re-run) |
+| `npm run test:docker` | Arabic PDF + Excel inside the container; **Phase 6:** runs and reports saved through the API (`X-Report-Id`, re-download, files on the volume), comparison, Host/Origin guard + healthcheck, failed migration stops the container; **Phase 7:** guarded URL fetch in the image, 429, 413, security headers (needs `docker compose up -d --build`) | 9 / 9 (clean clone and the `markuplens` stack) |
 | `npm run build` | Production build | ok |
+| `npm run lighthouse` | **Phase 7:** Lighthouse, 6 pages × mobile / desktop, median of 3 | see below |
 | `npm run db:backup` | Backup of `./data` into `backups/` | ok |
 | `npm run fixtures:update` | Re-record fixture expectations from the pinned vnu — only after changing `VNU_IMAGE` | — |
 
@@ -192,3 +215,21 @@ Docker check (Phase 5): `docker compose up --build` from the worktree, then agai
 Docker check (Phase 6): `docker compose up -d --build` from the worktree (project `markuplens`, volume `markuplens_markuplens-data`); the entrypoint applied `20261010000000_init` and the app became healthy; image 1.76 GB. Through `127.0.0.1:3000`: URL validation of the XAMPP dashboard saved ("Saved to history" link), saved run page, server-side re-run, "Compare with previous run" (10 unchanged). Volume backup / restore with `tar` inside the app image verified (restored history served again).
 
 Docker check (Phase 6, after the merge): `npm install` + `docker compose up -d --build` from the main folder on `main` (`aee14e6`); the entrypoint ran `prisma migrate deploy` ("No pending migrations to apply" — the volume already had `20261010000000_init`), the app became healthy, and the existing history (6 runs) was kept on the `markuplens_markuplens-data` volume.
+
+### Lighthouse (Phase 7, final build, median of 3 runs; range of the 3 performance scores in brackets)
+
+| Page | Mobile perf | Mobile LCP / TBT | Desktop perf | Accessibility (mobile / desktop) | Best practices |
+|---|---|---|---|---|---|
+| Validate (home) `/` | **80** (77–91) | 3.6 s / 390 ms | 100 | 100 / 100 | 100 |
+| Bulk `/bulk` | **85** (84–87) | 3.3 s / 310 ms | 100 | 100 / 100 | 100 |
+| History `/history` | **80** (77–92) | 4.1 s / 280 ms | 100 | 100 / 100 | 100 |
+| Saved run with results `/history/<id>` | **79** (71–84) | 3.7 s / 380 ms | 99 | 100 / 100 | 100 |
+| Compare `/history/compare` | **86** (78–88) | 3.2 s / 320 ms | 100 | 100 / 100 | 100 |
+| API docs `/api-docs` | **89** (75–90) | 2.9 s / 290 ms | 100 | 100 / 100 | 100 |
+
+- **Accessibility ≥ 95: met everywhere (100).** Before the fixes: saved run 97 and compare 92 (colour contrast of red on its tint; a dangling `aria-controls`).
+- **Performance ≥ 85: met on desktop (99–100) and on 3 of 6 pages on mobile.** Home (80), History (80) and the saved run (79) stay below 85 on Lighthouse's mobile preset (simulated slow 4G, 4× CPU slowdown). CLS is 0 everywhere; FCP ≈ 1.1 s. What limits it: LCP is the server-rendered intro text, but in Lighthouse's simulation it waits for the page's JavaScript (React + Next.js runtime ≈ 70 KB gz for `react-dom` alone, ~250 KB gz in total) to download over slow 4G and hydrate at 4× slower CPU; TBT is mostly that hydration. Fixed: results view and report dialog now load on demand (≈ 116 KB raw off Validate and Bulk). Not done, because it would remove features or not be a real improvement: dropping client-side interactivity, the theme toggle or Radix components; tuning for the simulator. Run-to-run spread on this machine is large (e.g. home 77–91), which is why the median of 3 is reported.
+
+Docker check (Phase 7, clean clone): the `markuplens` stack was stopped (`docker compose stop`, history baseline 6 runs / 140,912 bytes); `git clone --branch chore/hardening` into `D:\markuplens-cleancheck`, only `cp .env.example .env`, then `docker compose -p markuplens-cleancheck up --build -d`: fresh volume, `prisma migrate deploy` applied `20261010000000_init` (with the `mysql2` / `deepmerge-ts` overrides), app healthy, vnu online, empty history, home page 200, image 1.76 GB; `npm run test:docker` against it 9 / 9. Its containers, network and volume were then removed (`down -v`, pre-approved). Removing the clone folder was blocked by Claude Code's safety check and is left to the owner; the `markuplens-cleancheck-app` image (1.76 GB) is left too (image removal wasn't part of the approval).
+
+Docker check (Phase 7, `markuplens` stack): `docker compose up --build -d` from the worktree; "No pending migrations to apply"; app healthy; history **6 runs / 140,912 bytes, unchanged**; `npm run test:docker` 9 / 9 (adds 2 small test runs → 8).

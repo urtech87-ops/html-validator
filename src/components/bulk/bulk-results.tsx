@@ -117,7 +117,7 @@ export function BulkPageTable({ pages, selected, onSelect }: { pages: BulkPage[]
           </Select>
         </div>
       </div>
-      <div className="overflow-x-auto rounded-lg border">
+      <div className="relative overflow-x-auto rounded-lg border">
         <table className="w-full min-w-[42rem] text-left text-sm">
           <caption className="sr-only">Validated pages. Select a row to see its full results.</caption>
           <thead className="bg-muted/50 text-xs text-muted-foreground">

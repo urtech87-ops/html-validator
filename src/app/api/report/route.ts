@@ -1,7 +1,9 @@
 import { reportSourceFor, saveReport } from "@/lib/history/reports";
 import { loadRun } from "@/lib/history/store";
+import { BodyTooLargeError, readJsonLimited } from "@/lib/http/body";
 import { localOnly } from "@/lib/http/local-only";
-import { contentDisposition, generateReport } from "@/lib/report/generate";
+import { generateReport } from "@/lib/report/generate";
+import { downloadHeaders } from "@/lib/report/filename";
 import { PdfUnavailableError } from "@/lib/report/errors";
 import { parseReportOptions, parseReportRequest, ReportRequestError } from "@/lib/report/request";
 import { MAX_REPORT_REQUEST_BYTES, type ReportRequest } from "@/lib/report/types";
@@ -17,15 +19,11 @@ import { MAX_REPORT_REQUEST_BYTES, type ReportRequest } from "@/lib/report/types
  * the report is not saved.
  */
 export const POST = localOnly(async (request: Request) => {
-  const declared = Number(request.headers.get("content-length"));
-  if (declared > MAX_REPORT_REQUEST_BYTES) return Response.json({ error: "The report request is too large." }, { status: 413 });
-
   let body: unknown;
   try {
-    const text = await request.text();
-    if (text.length > MAX_REPORT_REQUEST_BYTES) return Response.json({ error: "The report request is too large." }, { status: 413 });
-    body = JSON.parse(text);
-  } catch {
+    body = await readJsonLimited(request, MAX_REPORT_REQUEST_BYTES);
+  } catch (err) {
+    if (err instanceof BodyTooLargeError) return Response.json({ error: "The report request is too large." }, { status: 413 });
     return Response.json({ error: "Request body must be JSON." }, { status: 400 });
   }
 
@@ -49,11 +47,9 @@ export const POST = localOnly(async (request: Request) => {
     const report = await generateReport(parsed);
     const payload = typeof report.body === "string" ? new TextEncoder().encode(report.body) : report.body;
     const headers: Record<string, string> = {
-      "Content-Type": report.contentType,
-      "Content-Disposition": contentDisposition(report.filename),
+      ...downloadHeaders(report.contentType, report.filename),
       "Content-Length": String(payload.byteLength),
       "Cache-Control": "no-store",
-      "X-Content-Type-Options": "nosniff",
     };
     if (runId !== undefined) {
       try {

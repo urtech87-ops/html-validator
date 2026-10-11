@@ -1,7 +1,7 @@
 import { historyError, NO_STORE } from "@/lib/history/http";
 import { deleteSavedReport, readSavedReport } from "@/lib/history/reports";
 import { localOnly } from "@/lib/http/local-only";
-import { contentDisposition } from "@/lib/report/filename";
+import { downloadHeaders } from "@/lib/report/filename";
 
 /**
  * GET /api/history/reports/:id     → download a saved report again (the id from X-Report-Id).
@@ -14,11 +14,9 @@ export const GET = localOnly(async (_request: Request, { params }: RouteContext<
     if (!report) return Response.json({ error: "Report not found." }, { status: 404 });
     return new Response(new Uint8Array(report.body), {
       headers: {
-        "Content-Type": report.contentType,
-        "Content-Disposition": contentDisposition(report.filename),
+        ...downloadHeaders(report.contentType, report.filename),
         "Content-Length": String(report.body.byteLength),
         "X-Report-Id": report.id,
-        "X-Content-Type-Options": "nosniff",
         ...NO_STORE,
       },
     });

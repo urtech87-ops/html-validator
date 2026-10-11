@@ -1,6 +1,7 @@
 import "server-only";
+import { Agent, fetch as undiciFetch, type RequestInit as UndiciRequestInit } from "undici";
 import { RunCancelledError, throwIfCancelled, withTimeout } from "@/lib/abort";
-import { assertUrlAllowed, BlockedUrlError, rewriteLocalhostForDocker, type Resolver } from "./ssrf";
+import { assertUrlAllowed, BlockedUrlError, guardedLookup, rewriteLocalhostForDocker, type LookupAll, type Resolver } from "./ssrf";
 
 export const FETCH_TIMEOUT_MS = 15_000;
 export const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
@@ -34,8 +35,11 @@ export interface SafeFetchOptions {
   accept?: string;
   timeoutMs?: number;
   maxBytes?: number;
+  /** Replaces the network entirely (unit tests); skips the connect-time check. */
   fetchImpl?: typeof fetch;
   resolver?: Resolver;
+  /** DNS lookup used when connecting (tests simulate DNS rebinding with it). */
+  connectLookup?: LookupAll;
   /** Caller cancellation (bulk runs). Throws RunCancelledError when it fires. */
   signal?: AbortSignal;
 }
@@ -60,9 +64,36 @@ function displayUrl(actual: URL, original: URL): string {
   return actual.href;
 }
 
+/** One keep-alive pool per ALLOW_PRIVATE_URLS value; sockets only open to addresses guardedLookup allowed. */
+const agents = new Map<boolean, Agent>();
+
+function guardedAgent(allowPrivateUrls: boolean, lookupAll?: LookupAll): Agent {
+  const make = () => new Agent({ connect: { lookup: guardedLookup({ allowPrivateUrls, lookupAll }) } });
+  if (lookupAll) return make();
+  let agent = agents.get(allowPrivateUrls);
+  if (!agent) agents.set(allowPrivateUrls, (agent = make()));
+  return agent;
+}
+
+/** undici's fetch with the guarded agent (Node's built-in fetch can't take a custom lookup). */
+function guardedFetch(allowPrivateUrls: boolean, lookupAll?: LookupAll): typeof fetch {
+  const dispatcher = guardedAgent(allowPrivateUrls, lookupAll);
+  return ((url: URL, init: RequestInit) =>
+    undiciFetch(url, { ...(init as UndiciRequestInit), dispatcher }) as unknown as Promise<Response>) as typeof fetch;
+}
+
+/** The BlockedUrlError raised by guardedLookup, if that is why the connection failed. */
+function blockedCause(err: unknown): BlockedUrlError | undefined {
+  for (let e = err, depth = 0; e && depth < 5; e = (e as { cause?: unknown }).cause, depth++) {
+    if (e instanceof BlockedUrlError) return e;
+  }
+  return undefined;
+}
+
 /**
  * Fetch a URL for validation:
  * - http(s) only, SSRF check before the first request and after every redirect
+ * - the same check again on the addresses actually connected to (DNS rebinding)
  * - follows at most 5 redirects (manually, so each hop is checked)
  * - 15 s total timeout, 5 MB maximum body (streamed, aborted when exceeded)
  * - inside Docker, localhost/127.0.0.1 → host.docker.internal
@@ -72,7 +103,7 @@ export async function safeFetch(input: string | URL, opts: SafeFetchOptions): Pr
   const original = typeof input === "string" ? parseUserUrl(input) : input;
   const timeoutMs = opts.timeoutMs ?? FETCH_TIMEOUT_MS;
   const maxBytes = opts.maxBytes ?? MAX_RESPONSE_BYTES;
-  const fetchImpl = opts.fetchImpl ?? fetch;
+  const fetchImpl = opts.fetchImpl ?? guardedFetch(opts.allowPrivateUrls, opts.connectLookup);
   const signal = withTimeout(timeoutMs, opts.signal);
   const redirects: string[] = [];
 
@@ -100,6 +131,8 @@ export async function safeFetch(input: string | URL, opts: SafeFetchOptions): Pr
       });
     } catch (err) {
       throwIfCancelled(opts.signal);
+      const blocked = blockedCause(err);
+      if (blocked) throw new BlockedUrlError(blocked.message);
       if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
         throw new FetchFailedError(`The page did not respond within ${Math.round(timeoutMs / 1000)} seconds.`);
       }

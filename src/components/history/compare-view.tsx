@@ -10,7 +10,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { downloadComparison } from "@/lib/client/history-client";
 import { CHANGE_LABEL, DOCUMENT_STATUS_LABEL, type CompareResult, type CompareRunInfo, type IssueChange } from "@/lib/history/compare-types";
 import { INPUT_TYPE_LABEL, STATUS_LABEL } from "@/lib/history/types";
@@ -166,7 +166,7 @@ export function CompareView({ result }: { result: CompareResult }) {
         <h2 id="compare-docs" className="font-heading text-lg font-semibold">
           {result.kind === "bulk" ? "Pages and stylesheets" : "Documents"}
         </h2>
-        <div className="overflow-x-auto rounded-lg border">
+        <div className="relative overflow-x-auto rounded-lg border">
           <table className="w-full min-w-[44rem] text-left text-sm">
             <thead className="bg-muted/50 text-xs text-muted-foreground">
               <tr>
@@ -241,44 +241,47 @@ export function CompareView({ result }: { result: CompareResult }) {
             <TabsTrigger value="fixed">Fixed ({totals.fixed})</TabsTrigger>
             <TabsTrigger value="unchanged">Unchanged ({totals.unchanged})</TabsTrigger>
           </TabsList>
+          {/* One panel for the selected filter, so the active tab's aria-controls points at it. */}
+          <TabsContent value={change} className="space-y-4">
+            {issues.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No issues to show.</p>
+            ) : (
+              <ul className="space-y-2">
+                {issues.slice(0, limit).map((i) => (
+                  <li key={`${i.change}:${i.document}:${i.id}`} className="rounded-lg border p-3 text-sm">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`rounded-md px-2 py-0.5 text-xs font-semibold ${CHANGE_STYLE[i.change]}`}>{CHANGE_LABEL[i.change]}</span>
+                      <SeverityIcon severity={i.severityAfter ?? i.severityBefore ?? "error"} />
+                      {i.severityBefore && i.severityAfter && i.severityBefore !== i.severityAfter && (
+                        <span className="text-xs text-warning-foreground">
+                          {i.severityBefore} → {i.severityAfter}
+                        </span>
+                      )}
+                      <span className="font-mono text-xs text-muted-foreground">{i.id}</span>
+                      {i.line !== undefined && <span className="text-xs text-muted-foreground">line {i.line}</span>}
+                    </div>
+                    <p className="mt-1.5 break-words" dir="auto">
+                      {i.message}
+                    </p>
+                    <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground" title={i.document}>
+                      {i.document}
+                    </p>
+                    {i.extract && (
+                      <div className="mt-2">
+                        <Extract extract={i.extract} hiliteStart={i.hiliteStart} hiliteLength={i.hiliteLength} severity={i.severityAfter ?? i.severityBefore ?? "error"} />
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {issues.length > limit && (
+              <Button variant="outline" onClick={() => setLimit((n) => n + PAGE)}>
+                Show more ({(issues.length - limit).toLocaleString("en")} left)
+              </Button>
+            )}
+          </TabsContent>
         </Tabs>
-        {issues.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No issues to show.</p>
-        ) : (
-          <ul className="space-y-2">
-            {issues.slice(0, limit).map((i) => (
-              <li key={`${i.change}:${i.document}:${i.id}`} className="rounded-lg border p-3 text-sm">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className={`rounded-md px-2 py-0.5 text-xs font-semibold ${CHANGE_STYLE[i.change]}`}>{CHANGE_LABEL[i.change]}</span>
-                  <SeverityIcon severity={i.severityAfter ?? i.severityBefore ?? "error"} />
-                  {i.severityBefore && i.severityAfter && i.severityBefore !== i.severityAfter && (
-                    <span className="text-xs text-warning-foreground">
-                      {i.severityBefore} → {i.severityAfter}
-                    </span>
-                  )}
-                  <span className="font-mono text-xs text-muted-foreground">{i.id}</span>
-                  {i.line !== undefined && <span className="text-xs text-muted-foreground">line {i.line}</span>}
-                </div>
-                <p className="mt-1.5 break-words" dir="auto">
-                  {i.message}
-                </p>
-                <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground" title={i.document}>
-                  {i.document}
-                </p>
-                {i.extract && (
-                  <div className="mt-2">
-                    <Extract extract={i.extract} hiliteStart={i.hiliteStart} hiliteLength={i.hiliteLength} severity={i.severityAfter ?? i.severityBefore ?? "error"} />
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-        {issues.length > limit && (
-          <Button variant="outline" onClick={() => setLimit((n) => n + PAGE)}>
-            Show more ({(issues.length - limit).toLocaleString("en")} left)
-          </Button>
-        )}
       </section>
     </div>
   );

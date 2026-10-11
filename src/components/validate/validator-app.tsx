@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { CircleAlert, FileCode2, FileUp, Globe, History } from "lucide-react";
-import { ReportDialog } from "@/components/report/report-dialog";
-import { ResultsView } from "@/components/results/results-view";
+import { preloadResultsUi, ReportDialog, ResultsView } from "@/components/results/lazy";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -35,6 +34,7 @@ export function ValidatorApp() {
       controller.current = ac;
       const snapshot = options;
       setState({ kind: "busy" });
+      preloadResultsUi();
       try {
         const result = await request(ac.signal);
         if (!ac.signal.aborted) setState({ kind: "done", run: result, options: snapshot });
@@ -47,11 +47,22 @@ export function ValidatorApp() {
   );
 
   // Move focus to the results heading when a run completes (screen readers + keyboard users).
+  // The results view loads on demand, so wait (up to ~2 s) for its heading to appear.
   useEffect(() => {
     if (state.kind !== "done") return;
-    const heading = document.getElementById("results-heading");
-    heading?.focus({ preventScroll: true });
-    heading?.scrollIntoView({ behavior: "smooth", block: "start" });
+    let frame = 0;
+    let tries = 0;
+    const focus = () => {
+      const heading = document.getElementById("results-heading");
+      if (!heading) {
+        if (tries++ < 120) frame = requestAnimationFrame(focus);
+        return;
+      }
+      heading.focus({ preventScroll: true });
+      heading.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    focus();
+    return () => cancelAnimationFrame(frame);
   }, [state]);
 
   return (

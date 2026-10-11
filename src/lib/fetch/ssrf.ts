@@ -1,5 +1,6 @@
 import "server-only";
 import { lookup } from "node:dns/promises";
+import type { LookupFunction } from "node:net";
 import ipaddr from "ipaddr.js";
 
 /**
@@ -17,7 +18,8 @@ import ipaddr from "ipaddr.js";
  * IPv4-mapped IPv6 addresses are classified as the IPv4 address they carry.
  * Known metadata hostnames are blocked before DNS is even consulted.
  *
- * Phase 7 adds DNS-rebinding protection (validating the address at connect time).
+ * DNS rebinding: guardedLookup() applies the same rules at connect time, so
+ * the address that was checked is the address the socket connects to.
  */
 
 export class BlockedUrlError extends Error {
@@ -174,7 +176,11 @@ export async function assertUrlAllowed(
     }
   }
   if (addresses.length === 0) throw new BlockedUrlError(`Could not resolve host “${shown}”.`);
+  assertAddressesAllowed(addresses, shown, opts.allowPrivateUrls);
+}
 
+/** Throw BlockedUrlError unless every address is allowed under the SSRF rules. */
+export function assertAddressesAllowed(addresses: string[], shown: string, allowPrivateUrls: boolean): void {
   const classes = addresses.map(classifyAddress);
   if (classes.includes("always-blocked")) {
     const blocked = addresses[classes.indexOf("always-blocked")];
@@ -190,9 +196,48 @@ export async function assertUrlAllowed(
       `“${shown}” points to a reserved or non-routable address (${blocked}). MarkupLens never fetches these, even with ALLOW_PRIVATE_URLS=true.`,
     );
   }
-  if (classes.includes("private") && !opts.allowPrivateUrls) {
+  if (classes.includes("private") && !allowPrivateUrls) {
     throw new BlockedUrlError(
       `“${shown}” points to a private or local network address, which is blocked. Set ALLOW_PRIVATE_URLS=true to allow it.`,
     );
   }
+}
+
+export interface LookupAddress {
+  address: string;
+  family: number;
+}
+export type LookupAll = (hostname: string) => Promise<LookupAddress[]>;
+
+const defaultLookupAll: LookupAll = (hostname) => lookup(hostname, { all: true, verbatim: true });
+
+/** Error code set on BlockedUrlError when the connect-time check refuses an address. */
+export const BLOCKED_ADDRESS_CODE = "EBLOCKEDADDRESS";
+
+/**
+ * DNS-rebinding protection: a `lookup` for net/tls.connect that resolves the
+ * host and applies the same rules as assertUrlAllowed to the addresses the
+ * socket will actually connect to. assertUrlAllowed runs first (for clear
+ * errors); this closes the gap where a hostile DNS server answers with a
+ * public address for the check and a private/metadata one for the connection.
+ */
+export function guardedLookup(opts: { allowPrivateUrls: boolean; lookupAll?: LookupAll }): LookupFunction {
+  const lookupAll = opts.lookupAll ?? defaultLookupAll;
+  return (hostname, options, callback) => {
+    lookupAll(hostname)
+      .then((results) => {
+        if (results.length === 0) throw Object.assign(new Error(`getaddrinfo ENOTFOUND ${hostname}`), { code: "ENOTFOUND" });
+        assertAddressesAllowed(
+          results.map((r) => r.address),
+          hostname,
+          opts.allowPrivateUrls,
+        );
+        if (options.all) callback(null, results);
+        else callback(null, results[0].address, results[0].family);
+      })
+      .catch((err: unknown) => {
+        if (err instanceof BlockedUrlError) Object.assign(err, { code: BLOCKED_ADDRESS_CODE });
+        callback(err as NodeJS.ErrnoException, "");
+      });
+  };
 }

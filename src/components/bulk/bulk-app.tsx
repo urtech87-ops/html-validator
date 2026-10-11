@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { CircleAlert, History, ListPlus, Map as MapIcon, X } from "lucide-react";
-import { ReportDialog } from "@/components/report/report-dialog";
-import { ResultsView } from "@/components/results/results-view";
+import { preloadResultsUi, ReportDialog, ResultsView } from "@/components/results/lazy";
 import { OptionsPanel } from "@/components/validate/options-panel";
 import { useOptions } from "@/components/validate/settings-store";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -88,6 +87,7 @@ export function BulkApp() {
       const runOptions = saved?.options ?? options;
       const runConcurrency = saved?.concurrency ?? concurrency;
       setSelected(undefined);
+      preloadResultsUi();
       setRun({
         pages: urls.map((url, index) => ({ index, url, status: "queued" })),
         options: runOptions,

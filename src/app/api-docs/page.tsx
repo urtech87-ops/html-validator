@@ -3,6 +3,8 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { MAX_REPORTS_PER_RUN, MAX_SAVED_REPORT_BYTES } from "@/lib/history/types";
+import { BODY_LIMITS } from "@/lib/http/body";
+import { DEFAULT_RATE_LIMITS } from "@/lib/http/rate-limit";
 import { CONTENT_KEYS, REPORT_FORMATS } from "@/lib/report/types";
 
 export const metadata: Metadata = {
@@ -34,15 +36,17 @@ function Endpoint({ id, method, path, children }: { id: string; method: string; 
   );
 }
 
-function Fields({ rows }: { rows: Array<[string, string, string]> }) {
+function Fields({ rows, columns = ["Field", "Type", "Meaning"] }: { rows: Array<[string, string, string]>; columns?: [string, string, string] }) {
   return (
-    <div className="overflow-x-auto rounded-lg border">
+    <div className="relative overflow-x-auto rounded-lg border">
       <table className="w-full min-w-[36rem] text-left text-sm">
         <thead className="bg-muted/50 text-xs text-muted-foreground">
           <tr>
-            <th scope="col" className="px-3 py-2 font-medium">Field</th>
-            <th scope="col" className="px-3 py-2 font-medium">Type</th>
-            <th scope="col" className="px-3 py-2 font-medium">Meaning</th>
+            {columns.map((c) => (
+              <th key={c} scope="col" className="px-3 py-2 font-medium">
+                {c}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody className="divide-y">
@@ -73,6 +77,7 @@ export default function ApiDocsPage() {
           <a href="#validate" className="underline underline-offset-4">POST /api/validate</a>
           <a href="#report" className="underline underline-offset-4">POST /api/report</a>
           <a href="#saved-report" className="underline underline-offset-4">GET /api/history/reports/:id</a>
+          <a href="#limits" className="underline underline-offset-4">Limits</a>
           <a href="#errors" className="underline underline-offset-4">Errors</a>
         </nav>
       </section>
@@ -171,13 +176,42 @@ export default function ApiDocsPage() {
         <Code>{`curl -s ${BASE}/api/history/reports/2b9e… -OJ`}</Code>
       </Endpoint>
 
+      <Card id="limits" className="scroll-mt-20">
+        <CardContent className="space-y-2 text-sm leading-relaxed">
+          <h2 className="font-heading text-lg font-semibold">Rate limits and sizes</h2>
+          <p>
+            Requests are counted per client and minute. Over a limit the answer is <code className="font-mono">429</code> with a{" "}
+            <code className="font-mono">Retry-After</code> header (seconds). The defaults below can be changed with the{" "}
+            <code className="font-mono">RATE_LIMIT_*</code> settings in <code className="font-mono">.env</code>.
+          </p>
+          <Fields
+            columns={["Requests", "Counted", "Limit"]}
+            rows={[
+              ["validate, upload, sitemap, report, re-run, compare, bulk", "per minute", String(DEFAULT_RATE_LIMITS.work)],
+              ["POST /api/bulk", "per minute, extra", `${DEFAULT_RATE_LIMITS.bulk}; at most ${DEFAULT_RATE_LIMITS.bulkConcurrent} runs at once`],
+              ["POST /api/report", "per minute, extra", String(DEFAULT_RATE_LIMITS.report)],
+              ["other /api/history requests", "per minute", String(DEFAULT_RATE_LIMITS.read)],
+              ["all clients together", "per minute", String(DEFAULT_RATE_LIMITS.global)],
+              ["GET /api/health", "—", "not limited"],
+            ]}
+          />
+          <p>
+            Request bodies: <code className="font-mono">/api/validate</code> {BODY_LIMITS.validate / 1024 / 1024} MB (the document itself 5 MB),{" "}
+            <code className="font-mono">/api/validate/upload</code> {BODY_LIMITS.upload / 1024 / 1024} MB (20 files of 5 MB),{" "}
+            <code className="font-mono">/api/bulk</code> {BODY_LIMITS.bulk / 1024 / 1024} MB (200 URLs),{" "}
+            <code className="font-mono">/api/report</code> 60 MB; larger bodies get <code className="font-mono">413</code>.
+          </p>
+        </CardContent>
+      </Card>
+
       <Card id="errors" className="scroll-mt-20">
         <CardContent className="space-y-2 text-sm leading-relaxed">
           <h2 className="font-heading text-lg font-semibold">Errors</h2>
           <p>
             Errors are JSON: <code className="font-mono">{`{ "error": "…" }`}</code> with status <code className="font-mono">400</code> (bad
             request), <code className="font-mono">403</code> (not a local request), <code className="font-mono">404</code> (unknown run or
-            report), <code className="font-mono">413</code> (input too large), <code className="font-mono">503</code> (PDF renderer or history
+            report), <code className="font-mono">413</code> (input too large), <code className="font-mono">429</code> (rate limit; see{" "}
+            <code className="font-mono">Retry-After</code>), <code className="font-mono">503</code> (PDF renderer or history
             database unavailable). A page that can&apos;t be fetched is not an HTTP error: the run comes back with the document&apos;s{" "}
             <code className="font-mono">fatal</code> reason.
           </p>

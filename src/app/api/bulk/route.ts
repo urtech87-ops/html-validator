@@ -3,7 +3,9 @@ import { runBulk } from "@/lib/bulk/runner";
 import { DEFAULT_CONCURRENCY, MAX_BULK_URLS, MAX_CONCURRENCY, type BulkEvent } from "@/lib/bulk/types";
 import { parseUrlList } from "@/lib/bulk/url-list";
 import { BulkRecorder, wantsSave } from "@/lib/history/store";
+import { BODY_LIMITS, bodyErrorResponse, readJsonLimited } from "@/lib/http/body";
 import { localOnly } from "@/lib/http/local-only";
+import { rateLimiter, tooManyRequests } from "@/lib/http/rate-limit";
 import { parseOptions } from "@/lib/validation/options";
 
 /**
@@ -17,11 +19,11 @@ import { parseOptions } from "@/lib/validation/options";
 export const POST = localOnly(async (request: Request) => {
   let body: Record<string, unknown>;
   try {
-    body = (await request.json()) as Record<string, unknown>;
-  } catch {
-    return Response.json({ error: "Request body must be JSON." }, { status: 400 });
+    body = (await readJsonLimited(request, BODY_LIMITS.bulk)) as Record<string, unknown>;
+  } catch (err) {
+    return bodyErrorResponse(err) ?? Response.json({ error: "Request body must be JSON." }, { status: 400 });
   }
-  if (!Array.isArray(body.urls) || body.urls.some((u) => typeof u !== "string")) {
+  if (!body || typeof body !== "object" || !Array.isArray(body.urls) || body.urls.some((u) => typeof u !== "string")) {
     return Response.json({ error: "“urls” must be an array of strings." }, { status: 400 });
   }
   const parsed = parseUrlList((body.urls as string[]).join("\n"), Number.MAX_SAFE_INTEGER);
@@ -34,6 +36,15 @@ export const POST = localOnly(async (request: Request) => {
   const options = parseOptions(body.options);
   const sitemap = typeof body.sitemap === "string" && body.sitemap.trim() ? body.sitemap.trim().slice(0, 2048) : undefined;
   const mode = body.mode === "sitemap" && sitemap ? "sitemap" : "url-list";
+
+  // At most RATE_LIMIT_BULK_CONCURRENT runs stream at once; the slot is released when the stream ends.
+  const releaseSlot = rateLimiter().acquireBulkSlot();
+  if (!releaseSlot) {
+    return tooManyRequests(
+      { ok: false, retryAfter: 10, tier: "bulk" },
+      "Too many bulk runs are already running. Wait for one to finish (or cancel it) and try again.",
+    );
+  }
 
   let recorder: BulkRecorder | undefined;
   if (wantsSave(body.save)) {
@@ -74,6 +85,7 @@ export const POST = localOnly(async (request: Request) => {
           send({ ...final, runId: recorder?.id });
         })
         .finally(() => {
+          releaseSlot();
           try {
             streamController.close();
           } catch {
@@ -82,7 +94,7 @@ export const POST = localOnly(async (request: Request) => {
         });
     },
     cancel() {
-      controller.abort();
+      controller.abort(); // the run winds down and releases its slot in finally()
     },
   });
 

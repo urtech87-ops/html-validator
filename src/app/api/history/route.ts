@@ -1,6 +1,7 @@
 import { historyError, NO_STORE } from "@/lib/history/http";
 import { deleteRuns, listRuns } from "@/lib/history/store";
 import { parseHistoryQuery } from "@/lib/history/types";
+import { BODY_LIMITS, bodyErrorResponse, readJsonLimited } from "@/lib/http/body";
 import { localOnly } from "@/lib/http/local-only";
 
 /**
@@ -19,9 +20,9 @@ export const GET = localOnly(async (request: Request) => {
 export const DELETE = localOnly(async (request: Request) => {
   let body: { ids?: unknown };
   try {
-    body = (await request.json()) as { ids?: unknown };
-  } catch {
-    return Response.json({ error: "Request body must be JSON." }, { status: 400 });
+    body = (await readJsonLimited(request, BODY_LIMITS.ids)) as { ids?: unknown };
+  } catch (err) {
+    return bodyErrorResponse(err) ?? Response.json({ error: "Request body must be JSON." }, { status: 400 });
   }
   const ids = body?.ids;
   if (!Array.isArray(ids) || ids.length === 0 || ids.length > 1000 || ids.some((id) => typeof id !== "string")) {

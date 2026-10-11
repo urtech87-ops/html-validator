@@ -19,6 +19,13 @@ const ACCEPTED_MIME = new Set([
 
 const BINARY_SIGNATURES: Array<[string, number[]]> = [
   ["ZIP archive", [0x50, 0x4b, 0x03, 0x04]],
+  ["ZIP archive", [0x50, 0x4b, 0x05, 0x06]],
+  ["ZIP archive", [0x50, 0x4b, 0x07, 0x08]],
+  ["XZ archive", [0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00]],
+  ["Zstandard archive", [0x28, 0xb5, 0x2f, 0xfd]],
+  ["Microsoft Office document", [0xd0, 0xcf, 0x11, 0xe0]],
+  ["Java class file", [0xca, 0xfe, 0xba, 0xbe]],
+  ["RIFF media file", [0x52, 0x49, 0x46, 0x46]],
   ["GZIP archive", [0x1f, 0x8b]],
   ["RAR archive", [0x52, 0x61, 0x72, 0x21]],
   ["7-Zip archive", [0x37, 0x7a, 0xbc, 0xaf]],
@@ -46,6 +53,10 @@ export function looksBinary(bytes: Uint8Array): string | undefined {
   for (const [label, sig] of BINARY_SIGNATURES) {
     if (sig.every((b, i) => bytes[i] === b)) return label;
   }
+  // bzip2: "BZh" + block size 1-9 ("BZh" alone could start a text file).
+  if (bytes[0] === 0x42 && bytes[1] === 0x5a && bytes[2] === 0x68 && bytes[3] >= 0x31 && bytes[3] <= 0x39) return "BZIP2 archive";
+  // tar has its magic at offset 257.
+  if (new TextDecoder("latin1").decode(bytes.subarray(257, 262)) === "ustar") return "TAR archive";
   const utf16 = (bytes[0] === 0xff && bytes[1] === 0xfe) || (bytes[0] === 0xfe && bytes[1] === 0xff);
   if (!utf16 && bytes.subarray(0, 8192).includes(0)) return "binary file";
   return undefined;
@@ -55,7 +66,8 @@ export function looksBinary(bytes: Uint8Array): string | undefined {
 export function checkUpload(name: string, mime: string, size: number, bytes?: Uint8Array): UploadCheck {
   const kind = extensionKind(name);
   if (!kind) return { ok: false, error: `“${name}”: only ${ACCEPTED_EXTENSIONS.join(", ")} files are accepted.` };
-  if (!ACCEPTED_MIME.has(mime.toLowerCase())) return { ok: false, error: `“${name}”: file type “${mime}” is not accepted.` };
+  // Some clients add parameters ("text/html; charset=utf-8"); only the type itself matters.
+  if (!ACCEPTED_MIME.has(mime.split(";")[0].trim().toLowerCase())) return { ok: false, error: `“${name}”: file type “${mime}” is not accepted.` };
   if (size === 0) return { ok: false, error: `“${name}” is empty.` };
   if (size > MAX_UPLOAD_BYTES) return { ok: false, error: `“${name}” is larger than 5 MB.` };
   if (bytes) {

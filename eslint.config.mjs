@@ -16,6 +16,10 @@ const eslintConfig = defineConfig([
     "public/monaco/**",
     "src/generated/**",
     ".playwright-mcp/**",
+    // Test output (Playwright's HTML report bundles its own trace viewer, Lighthouse reports, …)
+    "test-results/**",
+    "playwright-report/**",
+    "coverage/**",
   ]),
 ]);
 
